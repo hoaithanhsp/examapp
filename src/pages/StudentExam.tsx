@@ -61,8 +61,13 @@ export function StudentExam() {
     }, [submissionId, answers, timeSpent, currentIndex, exitCount]);
 
     // Anti-cheat: Page Visibility API
+    // VIP: Nếu tên là "admin" thì bỏ qua cảnh báo (để test app)
     useEffect(() => {
+        const isVIP = submission?.student_name?.toLowerCase() === 'admin';
+
         const handleVisibilityChange = async () => {
+            if (isVIP) return; // VIP không bị cảnh báo
+
             if (document.hidden) {
                 const newCount = exitCount + 1;
                 setExitCount(newCount);
@@ -76,6 +81,8 @@ export function StudentExam() {
         };
 
         const handleBlur = async () => {
+            if (isVIP) return; // VIP không bị cảnh báo
+
             const newCount = exitCount + 1;
             setExitCount(newCount);
             setShowExitWarning(true);
@@ -92,7 +99,7 @@ export function StudentExam() {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             window.removeEventListener('blur', handleBlur);
         };
-    }, [exitCount, submissionId]);
+    }, [exitCount, submissionId, submission?.student_name]);
 
     const handleAnswer = useCallback((questionId: number, answer: string | string[]) => {
         setAnswers(prev => ({
