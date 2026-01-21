@@ -19,9 +19,9 @@ export function hasApiKey(): boolean {
 
 // Danh sách model với fallback - theo thứ tự ưu tiên
 export const AVAILABLE_MODELS = [
-    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', isDefault: true },
-    { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', isDefault: false },
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', isDefault: false },
+    { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash Preview', isDefault: true },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', isDefault: false },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', isDefault: false },
 ];
 
 export function getSelectedModel(): string {
@@ -44,68 +44,99 @@ function getModelFallbackList(): string[] {
     return [...models.slice(selectedIndex), ...models.slice(0, selectedIndex)];
 }
 
-// Prompt chuẩn để phân tích đề thi
-const ANALYSIS_PROMPT = `Bạn là một trợ lý AI chuyên nhập liệu đề thi. Nhiệm vụ của bạn là chuyển đổi văn bản thô từ file PDF thành định dạng JSON chuẩn.
+// Prompt chuẩn để phân tích đề thi với Gemini Vision
+const ANALYSIS_PROMPT = `Bạn là chuyên gia phân tích đề thi. Hãy phân tích đề thi từ hình ảnh này.
 
-VĂN BẢN ĐẦU VÀO:
-{TEXT}
+QUAN TRỌNG:
+1. Trích xuất TẤT CẢ câu hỏi, đáp án một cách chính xác
+2. Với công thức toán học: PHẢI viết dạng Unicode/HTML đẹp, KHÔNG dùng LaTeX
+   - Ví dụ: x² + y² thay vì x^2 + y^2
+   - Ví dụ: √2 thay vì \\sqrt{2}
+   - Ví dụ: ∫, ∑, π, α, β, γ, Δ, ∞ thay vì ký hiệu LaTeX
+   - Ví dụ: ½, ⅓, ¼ hoặc a/b cho phân số đơn giản
+3. Nếu có HÌNH ẢNH trong câu hỏi, hãy MÔ TẢ CHI TIẾT hình đó trong trường image_description
+4. Giữ nguyên số thứ tự câu hỏi như trong đề
 
-YÊU CẦU OUTPUT (JSON):
+Trả về JSON format (KHÔNG có markdown code block):
 {
-  "title": "Tên đề thi (nếu tìm thấy)",
+  "title": "Tên đề thi",
   "questions": [
     {
       "id": 1,
       "type": "multiple_choice",
-      "question": "Nội dung câu hỏi",
-      "options": ["A. Lựa chọn 1", "B. Lựa chọn 2", "C. Lựa chọn 3", "D. Lựa chọn 4"],
-      "correct_answer": "A"
+      "question": "Nội dung câu hỏi với công thức dạng Unicode (x² + 2x + 1 = 0)",
+      "options": ["A. Đáp án 1", "B. Đáp án 2", "C. Đáp án 3", "D. Đáp án 4"],
+      "correct_answer": "A",
+      "has_image": false,
+      "image_description": ""
     }
   ]
 }
 
-QUY TẮC QUAN TRỌNG:
-1. Nếu câu hỏi có dạng "A. ... B. ...", hãy gán type="multiple_choice".
-2. Nếu câu hỏi yêu cầu điền vào chỗ trống hoặc tính toán, gán type="short_answer".
-3. Nếu câu hỏi dạng bảng đúng sai, gán type="true_false" và thêm sub_questions cho từng ý.
-4. Bỏ qua các dòng không phải câu hỏi (như số trang, tiêu đề lặp lại).
-5. Nếu câu hỏi bị ngắt dòng, hãy nối lại cho liền mạch.
-6. TUYỆT ĐỐI chỉ trả về JSON thuần, KHÔNG thêm lời dẫn, KHÔNG có markdown code block.
-7. Nếu tìm thấy phần ĐÁP ÁN ở cuối, hãy điền vào correct_answer cho từng câu.`;
+Các loại câu hỏi:
+- "multiple_choice": Trắc nghiệm A, B, C, D
+- "true_false": Đúng/Sai
+- "short_answer": Trả lời ngắn
+`;
 
 export interface ParseResult {
     success: boolean;
     title?: string;
     questions?: Question[];
     error?: string;
+    usedModel?: string;
 }
 
-export async function analyzeExamText(text: string): Promise<ParseResult> {
+/**
+ * Phân tích đề thi bằng Gemini Vision (gửi ảnh)
+ */
+export async function analyzeExamWithVision(pageImages: string[]): Promise<ParseResult> {
     const apiKey = getApiKey();
     if (!apiKey) {
         return { success: false, error: 'Chưa có API Key. Vui lòng nhập API Key trong phần Cài đặt.' };
     }
 
-    // Kiểm tra API key có đúng format không
-    if (!apiKey.startsWith('AI') || apiKey.length < 30) {
-        return { success: false, error: 'API Key không hợp lệ. Vui lòng kiểm tra lại key trong phần Cài đặt.' };
-    }
-
     const genAI = new GoogleGenerativeAI(apiKey);
     let lastError: string = '';
+
 
     // Thử từng model cho đến khi thành công
     for (const modelName of getModelFallbackList()) {
         try {
             console.log(`Đang thử model: ${modelName}`);
-            const model = genAI.getGenerativeModel({ model: modelName });
-            const prompt = ANALYSIS_PROMPT.replace('{TEXT}', text);
 
-            const result = await model.generateContent(prompt);
+            const model = genAI.getGenerativeModel({ model: modelName });
+
+            // Chuẩn bị content với ảnh
+            const imageParts = pageImages.map((imageBase64) => {
+                // Loại bỏ prefix "data:image/jpeg;base64," nếu có
+                const base64Data = imageBase64.includes(',')
+                    ? imageBase64.split(',')[1]
+                    : imageBase64;
+
+                return {
+                    inlineData: {
+                        mimeType: 'image/jpeg',
+                        data: base64Data
+                    }
+                };
+            });
+
+            // Thêm prompt
+            const prompt = pageImages.length > 1
+                ? `${ANALYSIS_PROMPT}\n\nĐề thi có ${pageImages.length} trang. Hãy phân tích TẤT CẢ các trang và trích xuất tất cả câu hỏi.`
+                : ANALYSIS_PROMPT;
+
+            // Gửi request với ảnh
+            const result = await model.generateContent([
+                ...imageParts,
+                { text: prompt }
+            ]);
+
             const response = await result.response;
             let responseText = response.text();
 
-            console.log('Response từ AI:', responseText.substring(0, 200) + '...');
+            console.log('Response từ AI:', responseText.substring(0, 300) + '...');
 
             // Clean JSON từ response
             responseText = responseText
@@ -137,15 +168,18 @@ export async function analyzeExamText(text: string): Promise<ParseResult> {
                 question: q.question || q.content || '',
                 options: q.options || [],
                 correct_answer: q.correct_answer || '',
-                sub_questions: q.sub_questions || undefined
+                sub_questions: q.sub_questions || undefined,
+                has_image: q.has_image || false,
+                image_description: q.image_description || ''
             }));
 
             console.log(`Thành công với model ${modelName}: ${questions.length} câu hỏi`);
 
             return {
                 success: true,
-                title: data.title || data.exam_title || 'Đề thi',
-                questions
+                title: data.title || 'Đề thi',
+                questions,
+                usedModel: modelName
             };
 
         } catch (error: any) {
@@ -163,26 +197,107 @@ export async function analyzeExamText(text: string): Promise<ParseResult> {
                 };
             }
 
-            // Nếu là lỗi quota hoặc rate limit, thử model tiếp theo
-            if (error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
-                console.log('Rate limit, thử model tiếp theo...');
-                continue;
-            }
-
-            // Nếu là lỗi model không tồn tại, thử model tiếp theo
-            if (error.message?.includes('404') || error.message?.includes('not found')) {
-                console.log('Model không tồn tại, thử model tiếp theo...');
-                continue;
-            }
-
-            // Các lỗi khác, thử model tiếp theo
+            // Tiếp tục thử model tiếp theo với các lỗi khác
             continue;
         }
     }
 
     return {
         success: false,
-        error: `Không thể phân tích đề thi. Lỗi: ${lastError}. Vui lòng kiểm tra API Key hoặc thử lại sau.`
+        error: `Không thể phân tích đề thi. Lỗi: ${lastError}`
     };
 }
 
+/**
+ * Phân tích đề thi từ text (fallback nếu không có ảnh)
+ */
+export async function analyzeExamText(text: string): Promise<ParseResult> {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        return { success: false, error: 'Chưa có API Key. Vui lòng nhập API Key trong phần Cài đặt.' };
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    let lastError: string = '';
+
+    const textPrompt = `Bạn là chuyên gia phân tích đề thi. Hãy phân tích đề thi từ văn bản sau:
+
+${text}
+
+QUAN TRỌNG:
+1. Trích xuất TẤT CẢ câu hỏi, đáp án
+2. Công thức toán học phải viết dạng Unicode đẹp (x², √2, π, ∫, ∑) KHÔNG dùng LaTeX
+3. Giữ nguyên số thứ tự câu hỏi
+
+Trả về JSON (KHÔNG có markdown):
+{
+  "title": "Tên đề thi",
+  "questions": [
+    {
+      "id": 1,
+      "type": "multiple_choice",
+      "question": "Câu hỏi",
+      "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
+      "correct_answer": "A"
+    }
+  ]
+}`;
+
+    for (const modelName of getModelFallbackList()) {
+        try {
+            console.log(`Đang thử model: ${modelName}`);
+            const model = genAI.getGenerativeModel({ model: modelName });
+
+            const result = await model.generateContent(textPrompt);
+            const response = await result.response;
+            let responseText = response.text();
+
+            // Clean JSON
+            responseText = responseText
+                .replace(/```json\n?/g, '')
+                .replace(/```\n?/g, '')
+                .trim();
+
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                responseText = jsonMatch[0];
+            }
+
+            const data = JSON.parse(responseText);
+
+            if (!data.questions || data.questions.length === 0) {
+                throw new Error('Không tìm thấy câu hỏi');
+            }
+
+            const questions: Question[] = data.questions.map((q: any, index: number) => ({
+                id: q.id || index + 1,
+                type: q.type || 'multiple_choice',
+                question: q.question || '',
+                options: q.options || [],
+                correct_answer: q.correct_answer || '',
+                sub_questions: q.sub_questions
+            }));
+
+            return {
+                success: true,
+                title: data.title || 'Đề thi',
+                questions,
+                usedModel: modelName
+            };
+
+        } catch (error: any) {
+            console.error(`Model ${modelName} thất bại:`, error);
+            lastError = error.message || 'Unknown error';
+
+            if (error.message?.includes('401') || error.message?.includes('403')) {
+                return { success: false, error: 'API Key không hợp lệ.' };
+            }
+            continue;
+        }
+    }
+
+    return {
+        success: false,
+        error: `Không thể phân tích. Lỗi: ${lastError}`
+    };
+}

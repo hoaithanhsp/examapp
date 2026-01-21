@@ -2,10 +2,9 @@ import { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Upload, FileText, Check, AlertCircle, Eye, Loader2 } from 'lucide-react';
 import { extractTextFromPDF, isPDFFile } from '../lib/pdfParser';
-import { analyzeExamText } from '../lib/geminiService';
+import { analyzeExamWithVision, analyzeExamText, hasApiKey } from '../lib/geminiService';
 import { createExam, generateRoomCode, supabase } from '../lib/supabase';
 import type { Exam } from '../lib/supabase';
-import { hasApiKey } from '../lib/geminiService';
 
 export function TeacherDashboard() {
     const navigate = useNavigate();
@@ -80,24 +79,43 @@ export function TeacherDashboard() {
         setError('');
         setCreatedExam(null);
 
+
         try {
-            // Step 1: Extract text
-            setProgressText('Đang đọc file PDF...');
-            setProgress(20);
+            // Step 1: Đọc và render PDF thành ảnh
+            setProgressText('Đang đọc và chuyển PDF thành ảnh...');
+            setProgress(15);
 
             const pdfResult = await extractTextFromPDF(file);
-            if (!pdfResult.success || !pdfResult.text) {
+            if (!pdfResult.success) {
                 throw new Error(pdfResult.error || 'Không thể đọc file PDF');
             }
 
-            // Step 2: Analyze with AI
-            setProgressText('AI đang phân tích đề thi...');
-            setProgress(50);
+            setProgress(30);
 
-            const analyzeResult = await analyzeExamText(pdfResult.text);
+            // Step 2: Phân tích với Gemini Vision (ưu tiên) hoặc Text
+            let analyzeResult;
+
+            if (pdfResult.pageImages && pdfResult.pageImages.length > 0) {
+                // Có ảnh -> Dùng Gemini Vision để phân tích (giữ được hình ảnh trong đề)
+                setProgressText(`AI Vision đang phân tích ${pdfResult.pageImages.length} trang...`);
+                setProgress(50);
+
+                analyzeResult = await analyzeExamWithVision(pdfResult.pageImages);
+            } else if (pdfResult.text) {
+                // Fallback: chỉ có text
+                setProgressText('AI đang phân tích văn bản đề thi...');
+                setProgress(50);
+
+                analyzeResult = await analyzeExamText(pdfResult.text);
+            } else {
+                throw new Error('Không thể trích xuất nội dung từ PDF');
+            }
+
             if (!analyzeResult.success || !analyzeResult.questions) {
                 throw new Error(analyzeResult.error || 'Không thể phân tích đề thi');
             }
+
+
 
             // Step 3: Create exam in database
             setProgressText('Đang tạo phòng thi...');
@@ -123,6 +141,8 @@ export function TeacherDashboard() {
 
         } catch (err: any) {
             setError(err.message || 'Có lỗi xảy ra');
+            setProgress(0);
+            setProgressText('Đã dừng do lỗi');
         } finally {
             setProcessing(false);
         }

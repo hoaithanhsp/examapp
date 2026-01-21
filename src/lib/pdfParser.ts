@@ -1,6 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Cấu hình worker cho PDF.js - sử dụng legacy build để tránh vấn đề worker
+// Cấu hình worker cho PDF.js
 // @ts-ignore
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
@@ -9,11 +9,35 @@ export interface PDFParseResult {
     success: boolean;
     text?: string;
     pageCount?: number;
+    pageImages?: string[]; // Base64 images của từng trang
     error?: string;
 }
 
 /**
- * Đọc nội dung text từ file PDF
+ * Render một trang PDF thành ảnh base64
+ */
+async function renderPageToImage(page: any, scale: number = 2): Promise<string> {
+    const viewport = page.getViewport({ scale });
+
+    // Tạo canvas
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    // Render page vào canvas
+    await page.render({
+        canvasContext: context,
+        viewport: viewport
+    }).promise;
+
+    // Convert canvas thành base64 (JPEG để giảm dung lượng)
+    return canvas.toDataURL('image/jpeg', 0.9);
+}
+
+/**
+ * Đọc nội dung từ file PDF - trích xuất cả text và ảnh
  */
 export async function extractTextFromPDF(file: File): Promise<PDFParseResult> {
     try {
@@ -25,34 +49,37 @@ export async function extractTextFromPDF(file: File): Promise<PDFParseResult> {
         const pageCount = pdf.numPages;
 
         let fullText = '';
+        const pageImages: string[] = [];
 
         // Đọc từng trang
         for (let i = 1; i <= pageCount; i++) {
             const page = await pdf.getPage(i);
-            const textContent = await page.getTextContent();
 
-            // Ghép các items thành text
+            // Trích xuất text
+            const textContent = await page.getTextContent();
             const pageText = textContent.items
                 .map((item: any) => item.str)
                 .join(' ');
 
             fullText += pageText + '\n\n';
+
+            // Render trang thành ảnh cho Gemini Vision
+            try {
+                const imageBase64 = await renderPageToImage(page);
+                pageImages.push(imageBase64);
+            } catch (renderError) {
+                console.warn(`Không thể render trang ${i}:`, renderError);
+            }
         }
 
         // Clean up text
         fullText = cleanText(fullText);
 
-        if (!fullText.trim()) {
-            return {
-                success: false,
-                error: 'File PDF này có thể là dạng ảnh scan. Vui lòng dùng công cụ OCR để chuyển sang văn bản trước.'
-            };
-        }
-
         return {
             success: true,
             text: fullText,
-            pageCount
+            pageCount,
+            pageImages
         };
 
     } catch (error: any) {
