@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Upload, FileText, Check, AlertCircle, Eye, Loader2 } from 'lucide-react';
 import { extractTextFromPDF, isPDFFile } from '../lib/pdfParser';
+import { extractFromWord, isWordFile } from '../lib/wordParser';
 import { analyzeExamWithVision, analyzeExamText, hasApiKey } from '../lib/geminiService';
 import { createExam, generateRoomCode, supabase } from '../lib/supabase';
 import type { Exam } from '../lib/supabase';
@@ -33,6 +34,9 @@ export function TeacherDashboard() {
         loadExams();
     });
 
+    // Kiểm tra file hợp lệ (PDF hoặc Word)
+    const isValidFile = (f: File) => isPDFFile(f) || isWordFile(f);
+
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         setIsDragging(true);
@@ -48,21 +52,21 @@ export function TeacherDashboard() {
         setIsDragging(false);
 
         const droppedFile = e.dataTransfer.files[0];
-        if (droppedFile && isPDFFile(droppedFile)) {
+        if (droppedFile && isValidFile(droppedFile)) {
             setFile(droppedFile);
             setError('');
         } else {
-            setError('Vui lòng chọn file PDF');
+            setError('Vui lòng chọn file PDF hoặc Word (.docx)');
         }
     }, []);
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
-        if (selectedFile && isPDFFile(selectedFile)) {
+        if (selectedFile && isValidFile(selectedFile)) {
             setFile(selectedFile);
             setError('');
         } else {
-            setError('Vui lòng chọn file PDF');
+            setError('Vui lòng chọn file PDF hoặc Word (.docx)');
         }
     };
 
@@ -79,51 +83,79 @@ export function TeacherDashboard() {
         setError('');
         setCreatedExam(null);
 
-
         try {
-            // Step 1: Đọc và render PDF thành ảnh
-            setProgressText('Đang đọc và chuyển PDF thành ảnh...');
-            setProgress(15);
-
-            const pdfResult = await extractTextFromPDF(file);
-            if (!pdfResult.success) {
-                throw new Error(pdfResult.error || 'Không thể đọc file PDF');
-            }
-
-            setProgress(30);
-
-            // Step 2: Phân tích với Gemini Vision (ưu tiên) hoặc Text
             let analyzeResult;
+            const isWord = isWordFile(file);
 
-            if (pdfResult.pageImages && pdfResult.pageImages.length > 0) {
-                // Có ảnh -> Dùng Gemini Vision để phân tích (giữ được hình ảnh trong đề)
-                setProgressText(`AI Vision đang phân tích ${pdfResult.pageImages.length} trang...`);
-                setProgress(50);
+            if (isWord) {
+                // === XỬ LÝ FILE WORD ===
+                setProgressText('Đang đọc file Word...');
+                setProgress(15);
 
-                analyzeResult = await analyzeExamWithVision(pdfResult.pageImages);
-            } else if (pdfResult.text) {
-                // Fallback: chỉ có text
-                setProgressText('AI đang phân tích văn bản đề thi...');
-                setProgress(50);
+                const wordResult = await extractFromWord(file);
+                if (!wordResult.success) {
+                    throw new Error(wordResult.error || 'Không thể đọc file Word');
+                }
 
-                analyzeResult = await analyzeExamText(pdfResult.text);
+                setProgress(30);
+
+                // Nếu Word có hình ảnh, dùng HTML để phân tích
+                if (wordResult.images && wordResult.images.length > 0) {
+                    setProgressText(`AI Vision đang phân tích ${wordResult.images.length} hình ảnh...`);
+                    setProgress(50);
+
+                    // Gửi hình ảnh từ Word đến Gemini Vision
+                    const imageBase64s = wordResult.images.map(img =>
+                        `data:${img.contentType};base64,${img.base64}`
+                    );
+                    analyzeResult = await analyzeExamWithVision(imageBase64s);
+                } else if (wordResult.html || wordResult.text) {
+                    setProgressText('AI đang phân tích nội dung Word...');
+                    setProgress(50);
+
+                    // Dùng text để phân tích
+                    analyzeResult = await analyzeExamText(wordResult.text || '');
+                } else {
+                    throw new Error('File Word không có nội dung');
+                }
+
             } else {
-                throw new Error('Không thể trích xuất nội dung từ PDF');
+                // === XỬ LÝ FILE PDF ===
+                setProgressText('Đang đọc và chuyển PDF thành ảnh...');
+                setProgress(15);
+
+                const pdfResult = await extractTextFromPDF(file);
+                if (!pdfResult.success) {
+                    throw new Error(pdfResult.error || 'Không thể đọc file PDF');
+                }
+
+                setProgress(30);
+
+                if (pdfResult.pageImages && pdfResult.pageImages.length > 0) {
+                    setProgressText(`AI Vision đang phân tích ${pdfResult.pageImages.length} trang...`);
+                    setProgress(50);
+                    analyzeResult = await analyzeExamWithVision(pdfResult.pageImages);
+                } else if (pdfResult.text) {
+                    setProgressText('AI đang phân tích văn bản đề thi...');
+                    setProgress(50);
+                    analyzeResult = await analyzeExamText(pdfResult.text);
+                } else {
+                    throw new Error('Không thể trích xuất nội dung từ PDF');
+                }
             }
 
             if (!analyzeResult.success || !analyzeResult.questions) {
                 throw new Error(analyzeResult.error || 'Không thể phân tích đề thi');
             }
 
-
-
             // Step 3: Create exam in database
             setProgressText('Đang tạo phòng thi...');
             setProgress(80);
 
             const roomCode = generateRoomCode();
+            const fileExtension = isWord ? '.docx' : '.pdf';
             const exam = await createExam({
-                title: analyzeResult.title || file.name.replace('.pdf', ''),
+                title: analyzeResult.title || file.name.replace(fileExtension, ''),
                 room_code: roomCode,
                 questions: analyzeResult.questions,
                 time_limit: 60
@@ -157,7 +189,7 @@ export function TeacherDashboard() {
             <div className="container">
                 <div className="page-header">
                     <h1>Dashboard Giáo viên</h1>
-                    <p>Upload đề thi PDF và tạo phòng thi trực tuyến</p>
+                    <p>Upload đề thi PDF hoặc Word (.docx) và tạo phòng thi trực tuyến</p>
                 </div>
 
                 {!hasApiKey() && (
@@ -219,7 +251,7 @@ export function TeacherDashboard() {
                                     <input
                                         type="file"
                                         id="file-input"
-                                        accept=".pdf"
+                                        accept=".pdf,.docx,.doc"
                                         onChange={handleFileSelect}
                                         style={{ display: 'none' }}
                                     />
@@ -233,7 +265,7 @@ export function TeacherDashboard() {
                                     ) : (
                                         <>
                                             <Upload size={64} className="upload-area-icon" />
-                                            <p className="font-bold">Kéo thả file PDF vào đây</p>
+                                            <p className="font-bold">Kéo thả file PDF hoặc Word vào đây</p>
                                             <p className="text-muted">hoặc click để chọn file</p>
                                         </>
                                     )}
