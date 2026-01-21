@@ -70,7 +70,10 @@ export function TeacherMonitor() {
         if (!exam) return;
 
         const data = submissions.map((sub) => ({
-            'Tên học sinh': sub.student_name,
+            'Mã số HS': sub.student_code || '-',
+            'Họ và tên': sub.student_name,
+            'Ngày sinh': sub.birth_date || '-',
+            'Lớp': sub.class_name || '-',
             'Trạng thái': sub.status === 'submitted' ? 'Đã nộp' : 'Đang làm',
             'Điểm': sub.score,
             'Tổng câu': sub.total_questions,
@@ -188,18 +191,22 @@ export function TeacherMonitor() {
                             <table>
                                 <thead>
                                     <tr>
-                                        <th>Học sinh</th>
+                                        <th>Mã số</th>
+                                        <th>Họ và tên</th>
+                                        <th>Lớp</th>
                                         <th>Trạng thái</th>
-                                        <th>Câu hiện tại</th>
+                                        <th>Câu</th>
                                         <th>Điểm</th>
-                                        <th>Thoát màn hình</th>
+                                        <th>Thoát</th>
                                         <th>Thời gian</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {submissions.map((sub) => (
                                         <tr key={sub.id}>
+                                            <td>{sub.student_code || '-'}</td>
                                             <td className="font-bold">{sub.student_name}</td>
+                                            <td>{sub.class_name || '-'}</td>
                                             <td>
                                                 <span className={`badge ${sub.status === 'submitted' ? 'badge-success' : 'badge-warning'}`}>
                                                     {sub.status === 'submitted' ? 'Đã nộp' : 'Đang làm'}
