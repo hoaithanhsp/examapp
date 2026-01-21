@@ -17,11 +17,12 @@ export function hasApiKey(): boolean {
     return !!getApiKey();
 }
 
-// Danh sách model với fallback - theo thứ tự ưu tiên (có hỗ trợ Vision)
+// Danh sách model với fallback - theo thứ tự ưu tiên (CẬP NHẬT 2026)
 export const AVAILABLE_MODELS = [
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (Vision)', isDefault: true },
-    { id: 'gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', isDefault: false },
-    { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro', isDefault: false },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Khuyến nghị)', isDefault: true },
+    { id: 'gemini-3-flash', name: 'Gemini 3 Flash', isDefault: false },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro (Context dài)', isDefault: false },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (Legacy)', isDefault: false },
 ];
 
 export function getSelectedModel(): string {
