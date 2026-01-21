@@ -19,10 +19,9 @@ export function hasApiKey(): boolean {
 
 // Danh sách model với fallback - theo thứ tự ưu tiên (CẬP NHẬT 2026)
 export const AVAILABLE_MODELS = [
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Khuyến nghị)', isDefault: true },
-    { id: 'gemini-3-flash', name: 'Gemini 3 Flash', isDefault: false },
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro (Context dài)', isDefault: false },
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (Legacy)', isDefault: false },
+    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', isDefault: true },
+    { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', isDefault: false },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', isDefault: false },
 ];
 
 export function getSelectedModel(): string {
