@@ -1,11 +1,12 @@
 import { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Upload, FileText, Check, AlertCircle, Eye, Loader2, Trash2, Image, Plus, X, Edit } from 'lucide-react';
+import { Upload, FileText, Check, AlertCircle, Eye, Loader2, Trash2, Image, Plus, X, Edit, Users } from 'lucide-react';
 import { extractTextFromPDF, isPDFFile } from '../lib/pdfParser';
 import { extractFromWord, isWordFile } from '../lib/wordParser';
 import { analyzeExamWithVision, analyzeExamText, hasApiKey } from '../lib/geminiService';
-import { createExam, generateRoomCode, supabase, uploadQuestionImage } from '../lib/supabase';
-import type { Exam } from '../lib/supabase';
+import { createExam, generateRoomCode, supabase, uploadQuestionImage, saveClassStudents, getClassStudents } from '../lib/supabase';
+import type { Exam, ClassStudent } from '../lib/supabase';
+import * as XLSX from 'xlsx';
 
 export function TeacherDashboard() {
     const navigate = useNavigate();
@@ -24,6 +25,13 @@ export function TeacherDashboard() {
     const [savingImages, setSavingImages] = useState(false);
     const [editingExam, setEditingExam] = useState<Exam | null>(null);
     const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+
+    // State cho quản lý danh sách lớp từ Excel
+    const [showClassModal, setShowClassModal] = useState(false);
+    const [classStudents, setClassStudents] = useState<Omit<ClassStudent, 'id' | 'exam_id' | 'created_at'>[]>([]);
+    const [savingClass, setSavingClass] = useState(false);
+    const [classExamId, setClassExamId] = useState<string>('');
+    const [existingClassCount, setExistingClassCount] = useState<number>(0);
 
     // Load existing exams
     useState(() => {
@@ -394,6 +402,87 @@ export function TeacherDashboard() {
         }
     };
 
+    // ============ XỬ LÝ DANH SÁCH LỚP TỪ EXCEL ============
+
+    // Parse file Excel để lấy danh sách học sinh
+    const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const workbook = XLSX.read(event.target?.result, { type: 'array' });
+                const sheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[sheetName];
+                const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+
+                // Bỏ dòng header đầu tiên
+                const rows = data.slice(1).filter(row => row.length >= 2);
+
+                // Parse dữ liệu - hỗ trợ các tên cột khác nhau
+                const students = rows.map(row => ({
+                    full_name: String(row[0] || '').trim(),
+                    student_code: String(row[1] || '').trim().toUpperCase(),
+                    password: String(row[2] || '').trim(),
+                    birth_date: String(row[3] || '').trim(),
+                    class_name: String(row[4] || '').trim()
+                })).filter(s => s.full_name && s.student_code && s.password);
+
+                setClassStudents(students);
+                setError('');
+            } catch (err: any) {
+                setError('Lỗi đọc file Excel: ' + err.message);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    // Mở modal upload danh sách lớp cho một đề thi
+    const openClassModal = async (examId: string) => {
+        setClassExamId(examId);
+        setClassStudents([]);
+        setShowClassModal(true);
+
+        // Kiểm tra xem đã có danh sách chưa
+        const existing = await getClassStudents(examId);
+        setExistingClassCount(existing.length);
+        if (existing.length > 0) {
+            // Hiển thị danh sách hiện có
+            setClassStudents(existing.map(s => ({
+                full_name: s.full_name,
+                student_code: s.student_code,
+                password: s.password,
+                birth_date: s.birth_date,
+                class_name: s.class_name
+            })));
+        }
+    };
+
+    // Lưu danh sách lớp vào database
+    const saveClassList = async () => {
+        if (!classExamId || classStudents.length === 0) return;
+
+        setSavingClass(true);
+        setError('');
+
+        try {
+            const result = await saveClassStudents(classExamId, classStudents);
+            if (result.success) {
+                alert(`Đã lưu danh sách ${classStudents.length} học sinh!`);
+                setShowClassModal(false);
+                setClassStudents([]);
+            } else {
+                setError('Lỗi lưu danh sách: ' + (result.error || 'Không xác định'));
+            }
+        } catch (err: any) {
+            setError('Lỗi: ' + err.message);
+        } finally {
+            setSavingClass(false);
+        }
+    };
+
+
     return (
         <>
             {/* Modal chỉnh sửa đề thi - Thêm ảnh */}
@@ -505,6 +594,110 @@ export function TeacherDashboard() {
                                     <><Loader2 size={16} className="spinner" /> Đang lưu...</>
                                 ) : (
                                     <><Check size={16} /> Lưu ảnh ({imageInputs.filter(i => i.questionNumber && i.imageUrl).length} câu)</>
+                                )}
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Modal Upload Danh sách lớp từ Excel */}
+            {showClassModal && (
+                <div className="modal-overlay" onClick={() => setShowClassModal(false)}>
+                    <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', maxHeight: '85vh', overflow: 'auto' }}>
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 style={{ margin: 0 }}>
+                                <Users size={20} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }} />
+                                Upload Danh sách lớp
+                            </h3>
+                            <button
+                                onClick={() => setShowClassModal(false)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem' }}
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {existingClassCount > 0 && (
+                            <div className="alert alert-success mb-3">
+                                <Check size={16} />
+                                <span>Đề thi này đã có {existingClassCount} học sinh trong danh sách</span>
+                            </div>
+                        )}
+
+                        <div style={{ background: 'var(--bg-tertiary)', padding: '1rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem' }}>
+                            <p className="text-sm mb-2"><strong>📋 Mẫu file Excel (theo thứ tự cột):</strong></p>
+                            <p className="text-sm text-muted" style={{ lineHeight: '1.6' }}>
+                                | Họ và tên | Mã số học sinh | Mật khẩu | Ngày sinh | Lớp |<br />
+                                | Lưu Đức Bảo An | HS01 | 123 | 20/03/2010 | 10A |
+                            </p>
+                        </div>
+
+                        {/* Input file */}
+                        <div className="mb-4">
+                            <label className="btn btn-primary" style={{ cursor: 'pointer' }}>
+                                <Upload size={16} />
+                                Chọn file Excel (.xlsx)
+                                <input
+                                    type="file"
+                                    accept=".xlsx,.xls"
+                                    onChange={handleExcelUpload}
+                                    style={{ display: 'none' }}
+                                />
+                            </label>
+                        </div>
+
+                        {/* Preview danh sách */}
+                        {classStudents.length > 0 && (
+                            <div style={{ marginBottom: '1rem' }}>
+                                <p className="text-sm mb-2"><strong>👥 Danh sách học sinh ({classStudents.length} em):</strong></p>
+                                <div className="table-container" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>#</th>
+                                                <th>Họ và tên</th>
+                                                <th>Mã số</th>
+                                                <th>Mật khẩu</th>
+                                                <th>Ngày sinh</th>
+                                                <th>Lớp</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {classStudents.map((s, idx) => (
+                                                <tr key={idx}>
+                                                    <td>{idx + 1}</td>
+                                                    <td>{s.full_name}</td>
+                                                    <td><strong>{s.student_code}</strong></td>
+                                                    <td>{s.password}</td>
+                                                    <td>{s.birth_date}</td>
+                                                    <td>{s.class_name}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {classStudents.length === 0 && (
+                            <p className="text-muted text-center" style={{ padding: '2rem', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+                                Chọn file Excel để xem preview danh sách
+                            </p>
+                        )}
+
+                        {/* Nút lưu */}
+                        {classStudents.length > 0 && (
+                            <button
+                                className="btn btn-secondary mt-4"
+                                onClick={saveClassList}
+                                disabled={savingClass}
+                                style={{ width: '100%' }}
+                            >
+                                {savingClass ? (
+                                    <><Loader2 size={16} className="spinner" /> Đang lưu...</>
+                                ) : (
+                                    <><Check size={16} /> Lưu danh sách ({classStudents.length} học sinh)</>
                                 )}
                             </button>
                         )}
@@ -813,6 +1006,14 @@ export function TeacherDashboard() {
                                                 <button
                                                     className="btn btn-sm"
                                                     style={{ background: 'var(--secondary)', color: 'white' }}
+                                                    onClick={() => openClassModal(exam.id)}
+                                                    title="Upload danh sách lớp"
+                                                >
+                                                    <Users size={16} />
+                                                </button>
+                                                <button
+                                                    className="btn btn-sm"
+                                                    style={{ background: 'var(--warning)', color: 'white' }}
                                                     onClick={() => {
                                                         setEditingExam(exam);
                                                         setImageInputs([]);
