@@ -303,7 +303,7 @@ export function StudentExam() {
 
                                 return (
                                     <div key={idx} className="flex gap-4 items-center p-4" style={{ background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-                                        <span style={{ flex: 1 }}>{sub.content}</span>
+                                        <MathContent content={sub.content} style={{ flex: 1 }} />
                                         <button
                                             className={`btn btn-sm ${isTrue ? 'btn-secondary' : 'btn-outline'}`}
                                             onClick={() => {
