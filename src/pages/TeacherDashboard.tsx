@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Upload, FileText, Check, AlertCircle, Eye, Loader2 } from 'lucide-react';
+import { Upload, FileText, Check, AlertCircle, Eye, Loader2, Trash2 } from 'lucide-react';
 import { extractTextFromPDF, isPDFFile } from '../lib/pdfParser';
 import { extractFromWord, isWordFile } from '../lib/wordParser';
 import { analyzeExamWithVision, analyzeExamText, hasApiKey } from '../lib/geminiService';
@@ -184,6 +184,29 @@ export function TeacherDashboard() {
         navigator.clipboard.writeText(code);
     };
 
+    const deleteExam = async (examId: string, examTitle: string) => {
+        if (!confirm(`Bạn có chắc chắn muốn xóa đề thi "${examTitle}"?`)) {
+            return;
+        }
+
+        try {
+            const { error } = await supabase
+                .from('exams')
+                .delete()
+                .eq('id', examId);
+
+            if (error) {
+                setError('Không thể xóa đề thi: ' + error.message);
+                return;
+            }
+
+            // Cập nhật danh sách exams
+            setExams(prev => prev.filter(e => e.id !== examId));
+        } catch (err: any) {
+            setError('Có lỗi khi xóa đề thi: ' + err.message);
+        }
+    };
+
     return (
         <div className="page">
             <div className="container">
@@ -354,6 +377,14 @@ export function TeacherDashboard() {
                                                 onClick={() => navigate(`/teacher/monitor/${exam.id}`)}
                                             >
                                                 <Eye size={16} />
+                                            </button>
+                                            <button
+                                                className="btn btn-sm"
+                                                style={{ background: 'var(--danger)', color: 'white' }}
+                                                onClick={() => deleteExam(exam.id, exam.title)}
+                                                title="Xóa đề thi"
+                                            >
+                                                <Trash2 size={16} />
                                             </button>
                                         </div>
                                     </div>
