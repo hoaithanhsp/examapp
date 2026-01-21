@@ -414,11 +414,11 @@ export function TeacherDashboard() {
                         </div>
 
                         <p className="text-sm text-muted mb-3">
-                            Đề có {editingExam.questions.length} câu hỏi. Nhập số câu và link ảnh bên dưới.
+                            Đề có {editingExam.questions.length} câu hỏi. Nhập số câu và link ảnh hoặc upload file bên dưới.
                         </p>
 
                         <p className="text-sm text-muted mb-3" style={{ lineHeight: '1.5' }}>
-                            💡 <strong>Link hỗ trợ:</strong> Imgur, ImgBB, Google Drive (tự động chuyển đổi)
+                            💡 <strong>Hỗ trợ:</strong> Nhập link (Imgur, Google Drive) hoặc upload file (.jpg, .png, .gif, .webp)
                         </p>
 
                         {/* Nút thêm dòng */}
