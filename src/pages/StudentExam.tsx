@@ -302,21 +302,43 @@ export function StudentExam() {
                         className="question-text"
                     />
 
-                    {/* Hiển thị mô tả hình ảnh nếu có */}
-                    {(currentQuestion as any).image_description && (
+                    {/* Hiển thị hình ảnh hoặc mô tả hình ảnh nếu có */}
+                    {currentQuestion.has_image && (
                         <div style={{
-                            background: 'rgba(59, 130, 246, 0.1)',
-                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.1))',
+                            border: '1px solid rgba(59, 130, 246, 0.4)',
                             borderRadius: 'var(--radius-md)',
                             padding: '1rem',
                             marginBottom: '1rem'
                         }}>
-                            <p style={{ fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--primary-light)' }}>
+                            <p style={{ fontWeight: 'bold', marginBottom: '0.75rem', color: 'var(--primary-light)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                 📷 Hình ảnh trong câu hỏi:
                             </p>
-                            <p style={{ fontStyle: 'italic', color: 'var(--text-secondary)' }}>
-                                {(currentQuestion as any).image_description}
-                            </p>
+
+                            {/* Hiển thị ảnh nếu có URL */}
+                            {currentQuestion.image_url && (
+                                <img
+                                    src={currentQuestion.image_url}
+                                    alt={`Hình minh họa câu ${currentIndex + 1}`}
+                                    style={{
+                                        maxWidth: '100%',
+                                        borderRadius: 'var(--radius-sm)',
+                                        marginBottom: currentQuestion.image_description ? '0.75rem' : 0
+                                    }}
+                                />
+                            )}
+
+                            {/* Hiển thị mô tả hình ảnh */}
+                            {currentQuestion.image_description && (
+                                <p style={{
+                                    fontStyle: 'italic',
+                                    color: 'var(--text-secondary)',
+                                    lineHeight: '1.6',
+                                    margin: 0
+                                }}>
+                                    {currentQuestion.image_description}
+                                </p>
+                            )}
                         </div>
                     )}
 
