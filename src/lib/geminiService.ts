@@ -219,9 +219,8 @@ export async function analyzeExamWithVision(pageImages: string[]): Promise<Parse
             console.error(`Model ${modelName} thất bại:`, error);
             lastError = error.message || 'Unknown error';
 
-            // Nếu lỗi 400/401/403 (API key sai), dừng ngay
-            if (error.message?.includes('400') ||
-                error.message?.includes('401') ||
+            // Chỉ dừng ngay với lỗi 401/403 (API key sai thật sự)
+            if (error.message?.includes('401') ||
                 error.message?.includes('403') ||
                 error.message?.includes('API_KEY_INVALID')) {
                 return {
@@ -230,7 +229,7 @@ export async function analyzeExamWithVision(pageImages: string[]): Promise<Parse
                 };
             }
 
-            // Tiếp tục thử model tiếp theo với các lỗi khác
+            // Lỗi 400 có thể là model không hỗ trợ, tiếp tục thử model khác
             continue;
         }
     }
@@ -322,9 +321,17 @@ Trả về JSON (KHÔNG có markdown):
             console.error(`Model ${modelName} thất bại:`, error);
             lastError = error.message || 'Unknown error';
 
-            if (error.message?.includes('401') || error.message?.includes('403')) {
-                return { success: false, error: 'API Key không hợp lệ.' };
+            // Chỉ dừng ngay với lỗi 401/403 (API key sai thật sự)
+            if (error.message?.includes('401') ||
+                error.message?.includes('403') ||
+                error.message?.includes('API_KEY_INVALID')) {
+                return {
+                    success: false,
+                    error: 'API Key không hợp lệ hoặc chưa được kích hoạt. Vui lòng kiểm tra lại.'
+                };
             }
+
+            // Lỗi 400 có thể là model không hỗ trợ, tiếp tục thử model khác
             continue;
         }
     }
