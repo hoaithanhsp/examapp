@@ -21,6 +21,10 @@ export interface Question {
   options?: string[];
   correct_answer: string | string[];
   sub_questions?: { content: string; answer: string }[];
+  // Hỗ trợ câu hỏi có hình ảnh
+  has_image?: boolean;
+  image_description?: string;
+  image_url?: string;
 }
 
 export interface Exam {
@@ -65,7 +69,7 @@ export async function getExamByRoomCode(roomCode: string): Promise<Exam | null> 
     .select('*')
     .eq('room_code', roomCode.toUpperCase())
     .single();
-  
+
   if (error) {
     console.error('Error fetching exam:', error);
     return null;
@@ -79,7 +83,7 @@ export async function createExam(exam: Partial<Exam>): Promise<Exam | null> {
     .insert([exam])
     .select()
     .single();
-  
+
   if (error) {
     console.error('Error creating exam:', error);
     return null;
@@ -93,7 +97,7 @@ export async function createStudent(name: string): Promise<Student | null> {
     .insert([{ name }])
     .select()
     .single();
-  
+
   if (error) {
     console.error('Error creating student:', error);
     return null;
@@ -107,7 +111,7 @@ export async function createSubmission(submission: Partial<Submission>): Promise
     .insert([submission])
     .select()
     .single();
-  
+
   if (error) {
     console.error('Error creating submission:', error);
     return null;
@@ -120,7 +124,7 @@ export async function updateSubmission(id: string, updates: Partial<Submission>)
     .from('submissions')
     .update(updates)
     .eq('id', id);
-  
+
   if (error) {
     console.error('Error updating submission:', error);
     return false;
@@ -134,7 +138,7 @@ export async function getSubmissionsByExam(examId: string): Promise<Submission[]
     .select('*')
     .eq('exam_id', examId)
     .order('started_at', { ascending: false });
-  
+
   if (error) {
     console.error('Error fetching submissions:', error);
     return [];
