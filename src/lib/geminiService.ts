@@ -45,38 +45,70 @@ function getModelFallbackList(): string[] {
 }
 
 // Prompt chuẩn để phân tích đề thi với Gemini Vision
-const ANALYSIS_PROMPT = `Bạn là chuyên gia phân tích đề thi. Hãy phân tích đề thi từ hình ảnh này.
+const ANALYSIS_PROMPT = `Bạn là chuyên gia phân tích đề thi Việt Nam. Hãy phân tích đề thi từ hình ảnh này.
 
-QUAN TRỌNG:
-1. Trích xuất TẤT CẢ câu hỏi, đáp án một cách chính xác
-2. Với công thức toán học: PHẢI viết dạng Unicode/HTML đẹp, KHÔNG dùng LaTeX
-   - Ví dụ: x² + y² thay vì x^2 + y^2
-   - Ví dụ: √2 thay vì \\sqrt{2}
-   - Ví dụ: ∫, ∑, π, α, β, γ, Δ, ∞ thay vì ký hiệu LaTeX
-   - Ví dụ: ½, ⅓, ¼ hoặc a/b cho phân số đơn giản
-3. Nếu có HÌNH ẢNH trong câu hỏi, hãy MÔ TẢ CHI TIẾT hình đó trong trường image_description
-4. Giữ nguyên số thứ tự câu hỏi như trong đề
+QUAN TRỌNG - PHẢI TUÂN THỦ:
+1. Trích xuất TẤT CẢ câu hỏi, đáp án một cách CHÍNH XÁC
+2. Công thức toán học: Sử dụng LaTeX ĐƯỢC BỌC TRONG $ $
+   - Ví dụ: $x^2 + y^2 = z^2$
+   - Phân số: $\\frac{a}{b}$
+   - Căn: $\\sqrt{2}$, $\\sqrt[3]{8}$
+   - Tích phân: $\\int_0^1 f(x)dx$
+   - Tổng: $\\sum_{i=1}^{n} i$
+   - Giới hạn: $\\lim_{x \\to 0}$
+   - Logarit: $\\log_2 x$, $\\ln x$
+   - Lượng giác: $\\sin x$, $\\cos x$, $\\tan x$
+   - Mũ: $e^x$, $2^n$
+   - CHỈ DÙNG $ $ cho công thức inline, KHÔNG dùng $$ $$
+3. Nếu câu hỏi có HÌNH VẼ, MÔ TẢ CHI TIẾT hình đó
+4. Giữ NGUYÊN số thứ tự câu hỏi
 
-Trả về JSON format (KHÔNG có markdown code block):
+CÁCH PHÂN LOẠI CÂU HỎI:
+1. "multiple_choice": Câu trắc nghiệm có 4 đáp án A, B, C, D
+2. "true_false": Câu Đúng/Sai có nhiều mệnh đề con (a, b, c, d) - mỗi mệnh đề chọn Đúng hoặc Sai
+3. "short_answer": Câu yêu cầu điền số hoặc viết câu trả lời ngắn
+
+Trả về JSON (KHÔNG có markdown block):
 {
   "title": "Tên đề thi",
   "questions": [
     {
       "id": 1,
       "type": "multiple_choice",
-      "question": "Nội dung câu hỏi với công thức dạng Unicode (x² + 2x + 1 = 0)",
+      "question": "Câu hỏi với công thức Unicode",
       "options": ["A. Đáp án 1", "B. Đáp án 2", "C. Đáp án 3", "D. Đáp án 4"],
       "correct_answer": "A",
       "has_image": false,
       "image_description": ""
+    },
+    {
+      "id": 2,
+      "type": "true_false",
+      "question": "Câu hỏi chính của phần Đúng/Sai",
+      "sub_questions": [
+        {"label": "a", "content": "Mệnh đề a cần đánh giá đúng sai", "correct_answer": "true"},
+        {"label": "b", "content": "Mệnh đề b cần đánh giá đúng sai", "correct_answer": "false"},
+        {"label": "c", "content": "Mệnh đề c cần đánh giá đúng sai", "correct_answer": "true"},
+        {"label": "d", "content": "Mệnh đề d cần đánh giá đúng sai", "correct_answer": "false"}
+      ],
+      "has_image": false,
+      "image_description": ""
+    },
+    {
+      "id": 3,
+      "type": "short_answer",
+      "question": "Câu hỏi yêu cầu điền đáp án (VD: Tính giá trị biểu thức...)",
+      "correct_answer": "42",
+      "has_image": true,
+      "image_description": "Mô tả chi tiết hình vẽ nếu có: Hình tam giác ABC vuông tại A, AB = 3cm, AC = 4cm..."
     }
   ]
 }
 
-Các loại câu hỏi:
-- "multiple_choice": Trắc nghiệm A, B, C, D
-- "true_false": Đúng/Sai
-- "short_answer": Trả lời ngắn
+LƯU Ý QUAN TRỌNG:
+- Câu Đúng/Sai BẮT BUỘC phải có "sub_questions" là mảng các mệnh đề con
+- Câu Trả lời ngắn chỉ cần "correct_answer" là giá trị đáp án
+- Nếu có hình vẽ, mô tả RÕ RÀNG hình dạng, số đo, các điểm đặc biệt
 `;
 
 export interface ParseResult {
