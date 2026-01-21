@@ -19,7 +19,7 @@ export function hasApiKey(): boolean {
 
 // Danh sách model với fallback - theo thứ tự ưu tiên
 export const AVAILABLE_MODELS = [
-    { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', isDefault: true },
+    { id: 'gemini-2.5-flash-preview', name: 'Gemini 3 Flash Preview', isDefault: true },
     { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', isDefault: false },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', isDefault: false },
 ];
@@ -333,3 +333,4 @@ Trả về JSON (KHÔNG có markdown):
         error: `Không thể phân tích. Lỗi: ${lastError}`
     };
 }
+
