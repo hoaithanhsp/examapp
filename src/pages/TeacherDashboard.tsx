@@ -4,7 +4,7 @@ import { Upload, FileText, Check, AlertCircle, Eye, Loader2, Trash2, Image, Plus
 import { extractTextFromPDF, isPDFFile } from '../lib/pdfParser';
 import { extractFromWord, isWordFile } from '../lib/wordParser';
 import { analyzeExamWithVision, analyzeExamText, hasApiKey } from '../lib/geminiService';
-import { createExam, generateRoomCode, supabase } from '../lib/supabase';
+import { createExam, generateRoomCode, supabase, uploadQuestionImage } from '../lib/supabase';
 import type { Exam } from '../lib/supabase';
 
 export function TeacherDashboard() {
@@ -23,6 +23,7 @@ export function TeacherDashboard() {
     const [imageInputs, setImageInputs] = useState<{ questionNumber: string, imageUrl: string, description: string }[]>([]);
     const [savingImages, setSavingImages] = useState(false);
     const [editingExam, setEditingExam] = useState<Exam | null>(null);
+    const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
 
     // Load existing exams
     useState(() => {
@@ -229,6 +230,39 @@ export function TeacherDashboard() {
         ));
     };
 
+    // Upload file ảnh lên Supabase Storage
+    const handleFileUpload = async (index: number, file: File) => {
+        const input = imageInputs[index];
+        if (!input.questionNumber) {
+            setError('Vui lòng nhập số câu trước khi upload ảnh');
+            return;
+        }
+
+        const examId = editingExam?.id || createdExam?.id;
+        if (!examId) {
+            setError('Không tìm thấy đề thi');
+            return;
+        }
+
+        setUploadingIndex(index);
+        setError('');
+
+        try {
+            const result = await uploadQuestionImage(file, examId, parseInt(input.questionNumber));
+
+            if (result.success && result.url) {
+                // Tự động điền URL vào input
+                updateImageInput(index, 'imageUrl', result.url);
+            } else {
+                setError('Upload thất bại: ' + (result.error || 'Lỗi không xác định. Hãy kiểm tra bucket "question-images" đã được tạo trên Supabase chưa.'));
+            }
+        } catch (err: any) {
+            setError('Upload thất bại: ' + err.message);
+        } finally {
+            setUploadingIndex(null);
+        }
+    };
+
     // Chuyển đổi link ảnh sang dạng có thể embed
     const convertToDirectImageUrl = (url: string): string => {
         // Google Drive: https://drive.google.com/file/d/FILE_ID/view... → https://drive.google.com/uc?export=view&id=FILE_ID
@@ -408,17 +442,44 @@ export function TeacherDashboard() {
                                 />
                                 <input
                                     type="url"
-                                    placeholder="Link ảnh (https://...)"
+                                    placeholder="Link ảnh hoặc upload →"
                                     value={input.imageUrl}
                                     onChange={(e) => updateImageInput(index, 'imageUrl', e.target.value)}
                                     style={{ flex: 1, padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
                                 />
+                                {/* Nút upload file */}
+                                <label style={{
+                                    padding: '0.5rem',
+                                    background: uploadingIndex === index ? 'var(--bg-tertiary)' : 'var(--primary)',
+                                    border: 'none',
+                                    borderRadius: 'var(--radius-sm)',
+                                    cursor: uploadingIndex === index ? 'wait' : 'pointer',
+                                    color: 'white',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                }} title="Upload ảnh từ máy">
+                                    {uploadingIndex === index ? (
+                                        <Loader2 size={16} className="spinner" />
+                                    ) : (
+                                        <Upload size={16} />
+                                    )}
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        style={{ display: 'none' }}
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) handleFileUpload(index, file);
+                                        }}
+                                        disabled={uploadingIndex !== null}
+                                    />
+                                </label>
                                 <input
                                     type="text"
                                     placeholder="Mô tả"
                                     value={input.description}
                                     onChange={(e) => updateImageInput(index, 'description', e.target.value)}
-                                    style={{ width: '100px', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+                                    style={{ width: '80px', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
                                 />
                                 <button onClick={() => removeImageInput(index)} style={{ padding: '0.5rem', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--danger)' }}>
                                     <X size={16} />
