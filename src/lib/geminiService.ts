@@ -3,6 +3,7 @@ import type { Question } from './supabase';
 
 // API Key được lưu trong localStorage
 const API_KEY_STORAGE = 'gemini_api_key';
+const SELECTED_MODEL_STORAGE = 'gemini_selected_model';
 
 export function getApiKey(): string | null {
     return localStorage.getItem(API_KEY_STORAGE);
@@ -16,12 +17,33 @@ export function hasApiKey(): boolean {
     return !!getApiKey();
 }
 
-// Danh sách model fallback
-const MODELS = [
-    'gemini-2.5-flash-preview-05-20',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash'
+// Danh sách model với fallback - theo thứ tự ưu tiên
+export const AVAILABLE_MODELS = [
+    { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash Preview', isDefault: true },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', isDefault: false },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', isDefault: false },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', isDefault: false },
 ];
+
+export function getSelectedModel(): string {
+    return localStorage.getItem(SELECTED_MODEL_STORAGE) || AVAILABLE_MODELS[0].id;
+}
+
+export function setSelectedModel(modelId: string): void {
+    localStorage.setItem(SELECTED_MODEL_STORAGE, modelId);
+}
+
+// Lấy danh sách model để thử (bắt đầu từ model được chọn)
+function getModelFallbackList(): string[] {
+    const selectedModel = getSelectedModel();
+    const models = AVAILABLE_MODELS.map(m => m.id);
+    const selectedIndex = models.indexOf(selectedModel);
+
+    if (selectedIndex === -1) return models;
+
+    // Bắt đầu từ model được chọn, sau đó thử các model còn lại
+    return [...models.slice(selectedIndex), ...models.slice(0, selectedIndex)];
+}
 
 // Prompt chuẩn để phân tích đề thi
 const ANALYSIS_PROMPT = `Bạn là một trợ lý AI chuyên nhập liệu đề thi. Nhiệm vụ của bạn là chuyển đổi văn bản thô từ file PDF thành định dạng JSON chuẩn.
@@ -35,10 +57,10 @@ YÊU CẦU OUTPUT (JSON):
   "questions": [
     {
       "id": 1,
-      "type": "multiple_choice", // hoặc "true_false" hoặc "short_answer"
+      "type": "multiple_choice",
       "question": "Nội dung câu hỏi",
-      "options": ["A. Lựa chọn 1", "B. Lựa chọn 2", "C. Lựa chọn 3", "D. Lựa chọn 4"], // nếu có
-      "correct_answer": "A" // nếu tìm thấy đáp án
+      "options": ["A. Lựa chọn 1", "B. Lựa chọn 2", "C. Lựa chọn 3", "D. Lựa chọn 4"],
+      "correct_answer": "A"
     }
   ]
 }
@@ -65,11 +87,18 @@ export async function analyzeExamText(text: string): Promise<ParseResult> {
         return { success: false, error: 'Chưa có API Key. Vui lòng nhập API Key trong phần Cài đặt.' };
     }
 
+    // Kiểm tra API key có đúng format không
+    if (!apiKey.startsWith('AI') || apiKey.length < 30) {
+        return { success: false, error: 'API Key không hợp lệ. Vui lòng kiểm tra lại key trong phần Cài đặt.' };
+    }
+
     const genAI = new GoogleGenerativeAI(apiKey);
+    let lastError: string = '';
 
     // Thử từng model cho đến khi thành công
-    for (const modelName of MODELS) {
+    for (const modelName of getModelFallbackList()) {
         try {
+            console.log(`Đang thử model: ${modelName}`);
             const model = genAI.getGenerativeModel({ model: modelName });
             const prompt = ANALYSIS_PROMPT.replace('{TEXT}', text);
 
@@ -77,17 +106,29 @@ export async function analyzeExamText(text: string): Promise<ParseResult> {
             const response = await result.response;
             let responseText = response.text();
 
+            console.log('Response từ AI:', responseText.substring(0, 200) + '...');
+
             // Clean JSON từ response
             responseText = responseText
                 .replace(/```json\n?/g, '')
                 .replace(/```\n?/g, '')
                 .trim();
 
+            // Tìm JSON trong response
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                responseText = jsonMatch[0];
+            }
+
             const data = JSON.parse(responseText);
 
             // Validate structure
             if (!data.questions || !Array.isArray(data.questions)) {
-                throw new Error('Invalid JSON structure');
+                throw new Error('JSON không có trường questions');
+            }
+
+            if (data.questions.length === 0) {
+                throw new Error('Không tìm thấy câu hỏi nào trong đề thi');
             }
 
             // Normalize questions
@@ -100,6 +141,8 @@ export async function analyzeExamText(text: string): Promise<ParseResult> {
                 sub_questions: q.sub_questions || undefined
             }));
 
+            console.log(`Thành công với model ${modelName}: ${questions.length} câu hỏi`);
+
             return {
                 success: true,
                 title: data.title || data.exam_title || 'Đề thi',
@@ -107,25 +150,40 @@ export async function analyzeExamText(text: string): Promise<ParseResult> {
             };
 
         } catch (error: any) {
-            console.warn(`Model ${modelName} failed:`, error.message);
+            console.error(`Model ${modelName} thất bại:`, error);
+            lastError = error.message || 'Unknown error';
+
+            // Nếu lỗi 400/401/403 (API key sai), dừng ngay
+            if (error.message?.includes('400') ||
+                error.message?.includes('401') ||
+                error.message?.includes('403') ||
+                error.message?.includes('API_KEY_INVALID')) {
+                return {
+                    success: false,
+                    error: 'API Key không hợp lệ hoặc chưa được kích hoạt. Vui lòng kiểm tra lại.'
+                };
+            }
 
             // Nếu là lỗi quota hoặc rate limit, thử model tiếp theo
-            if (error.message?.includes('429') || error.message?.includes('quota')) {
+            if (error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('RESOURCE_EXHAUSTED')) {
+                console.log('Rate limit, thử model tiếp theo...');
                 continue;
             }
 
-            // Nếu là lỗi JSON parse, thử lại
-            if (error instanceof SyntaxError) {
+            // Nếu là lỗi model không tồn tại, thử model tiếp theo
+            if (error.message?.includes('404') || error.message?.includes('not found')) {
+                console.log('Model không tồn tại, thử model tiếp theo...');
                 continue;
             }
 
-            // Lỗi khác, try next model
+            // Các lỗi khác, thử model tiếp theo
             continue;
         }
     }
 
     return {
         success: false,
-        error: 'Không thể phân tích đề thi. Vui lòng kiểm tra API Key hoặc thử lại sau.'
+        error: `Không thể phân tích đề thi. Lỗi: ${lastError}. Vui lòng kiểm tra API Key hoặc thử lại sau.`
     };
 }
+
