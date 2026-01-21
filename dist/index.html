@@ -4,11 +4,32 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>examapp</title>
-    <script type="module" crossorigin src="/assets/index-pSw_boyT.js"></script>
+    <title>ExamApp - Ứng dụng thi trực tuyến</title>
+    
+    <!-- MathJax Configuration -->
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$', '$$'], ['\\[', '\\]']]
+        },
+        svg: {
+          fontCache: 'global'
+        },
+        startup: {
+          ready: () => {
+            MathJax.startup.defaultReady();
+            window.MathJaxReady = true;
+          }
+        }
+      };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script type="module" crossorigin src="/assets/index-p2CmMHw2.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-DW9u7b2W.css">
   </head>
   <body>
     <div id="root"></div>
   </body>
 </html>
+

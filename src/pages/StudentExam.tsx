@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Send, AlertTriangle, Clock } from 'lucide-react';
 import { updateSubmission } from '../lib/supabase';
 import type { Exam, Submission } from '../lib/supabase';
+import { MathContent } from '../components/MathContent';
+
 
 export function StudentExam() {
     const { submissionId } = useParams<{ submissionId: string }>();
@@ -238,9 +240,30 @@ export function StudentExam() {
                         <span className="badge badge-primary">{currentQuestion.type === 'multiple_choice' ? 'Trắc nghiệm' : currentQuestion.type === 'true_false' ? 'Đúng/Sai' : 'Trả lời ngắn'}</span>
                     </div>
 
-                    <p className="question-text">{currentQuestion.question}</p>
+                    <MathContent
+                        content={currentQuestion.question}
+                        className="question-text"
+                    />
 
-                    {/* Answer Options */}
+                    {/* Hiển thị mô tả hình ảnh nếu có */}
+                    {(currentQuestion as any).image_description && (
+                        <div style={{
+                            background: 'rgba(59, 130, 246, 0.1)',
+                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                            borderRadius: 'var(--radius-md)',
+                            padding: '1rem',
+                            marginBottom: '1rem'
+                        }}>
+                            <p style={{ fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--primary-light)' }}>
+                                📷 Hình ảnh trong câu hỏi:
+                            </p>
+                            <p style={{ fontStyle: 'italic', color: 'var(--text-secondary)' }}>
+                                {(currentQuestion as any).image_description}
+                            </p>
+                        </div>
+                    )}
+
+                    {/* Answer Options - Multiple Choice */}
                     {currentQuestion.type === 'multiple_choice' && currentQuestion.options && (
                         <div className="options-list">
                             {currentQuestion.options.map((option, idx) => {
@@ -253,13 +276,14 @@ export function StudentExam() {
                                         onClick={() => handleAnswer(currentQuestion.id, letter)}
                                     >
                                         <div className="option-radio" />
-                                        <span className="option-text">{option}</span>
+                                        <MathContent content={option} className="option-text" />
                                     </div>
                                 );
                             })}
                         </div>
                     )}
 
+                    {/* Short Answer */}
                     {currentQuestion.type === 'short_answer' && (
                         <input
                             type="text"
