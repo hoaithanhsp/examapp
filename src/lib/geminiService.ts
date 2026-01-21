@@ -201,8 +201,10 @@ export async function analyzeExamWithVision(pageImages: string[]): Promise<Parse
                 options: q.options || [],
                 correct_answer: q.correct_answer || '',
                 sub_questions: q.sub_questions || undefined,
-                has_image: q.has_image || false,
-                image_description: q.image_description || ''
+                // Hỗ trợ câu hỏi có hình ảnh
+                has_image: q.has_image === true,
+                image_description: q.image_description || '',
+                image_url: q.image_url || ''
             }));
 
             console.log(`Thành công với model ${modelName}: ${questions.length} câu hỏi`);
@@ -314,7 +316,11 @@ Trả về JSON (KHÔNG có markdown):
                 question: q.question || '',
                 options: q.options || [],
                 correct_answer: q.correct_answer || '',
-                sub_questions: q.sub_questions
+                sub_questions: q.sub_questions,
+                // Hỗ trợ câu hỏi có hình ảnh
+                has_image: q.has_image === true,
+                image_description: q.image_description || '',
+                image_url: q.image_url || ''
             }));
 
             return {
