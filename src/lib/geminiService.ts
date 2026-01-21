@@ -17,11 +17,11 @@ export function hasApiKey(): boolean {
     return !!getApiKey();
 }
 
-// Danh sách model với fallback - theo thứ tự ưu tiên
+// Danh sách model với fallback - theo thứ tự ưu tiên (có hỗ trợ Vision)
 export const AVAILABLE_MODELS = [
-    { id: 'gemini-2.5-flash-preview', name: 'Gemini 3 Flash Preview', isDefault: true },
-    { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', isDefault: false },
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', isDefault: false },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (Vision)', isDefault: true },
+    { id: 'gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', isDefault: false },
+    { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro', isDefault: false },
 ];
 
 export function getSelectedModel(): string {
@@ -333,4 +333,3 @@ Trả về JSON (KHÔNG có markdown):
         error: `Không thể phân tích. Lỗi: ${lastError}`
     };
 }
-
