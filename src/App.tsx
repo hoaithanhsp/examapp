@@ -1,14 +1,16 @@
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Home } from './pages/Home';
+import { TeacherLogin } from './pages/TeacherLogin';
 import { TeacherDashboard } from './pages/TeacherDashboard';
 import { TeacherMonitor } from './pages/TeacherMonitor';
 import { StudentLogin } from './pages/StudentLogin';
 import { StudentExam } from './pages/StudentExam';
 import { StudentResult } from './pages/StudentResult';
 import { Settings } from './pages/Settings';
-import { GraduationCap, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
+import { GraduationCap, Settings as SettingsIcon, AlertCircle, LogOut } from 'lucide-react';
 import { hasApiKey } from './lib/geminiService';
+import { isTeacherLoggedIn, getTeacherSession, logoutTeacher } from './data/accountvip';
 import './index.css';
 
 // Modal bắt buộc nhập API Key
@@ -59,9 +61,18 @@ function ApiKeyModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// Component bảo vệ route giáo viên
+function ProtectedTeacherRoute({ children }: { children: React.ReactNode }) {
+  if (!isTeacherLoggedIn()) {
+    return <Navigate to="/teacher/login" replace />;
+  }
+  return <>{children}</>;
+}
+
 function App() {
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [hasKey, setHasKey] = useState(true);
+  const [teacherLoggedIn, setTeacherLoggedIn] = useState(isTeacherLoggedIn());
 
   useEffect(() => {
     // Kiểm tra API key khi app load
@@ -75,9 +86,29 @@ function App() {
     checkKey();
 
     // Kiểm tra lại khi localStorage thay đổi
-    window.addEventListener('storage', checkKey);
-    return () => window.removeEventListener('storage', checkKey);
+    const handleStorage = () => {
+      checkKey();
+      setTeacherLoggedIn(isTeacherLoggedIn());
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
   }, []);
+
+  // Cập nhật trạng thái đăng nhập
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTeacherLoggedIn(isTeacherLoggedIn());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleLogout = () => {
+    logoutTeacher();
+    setTeacherLoggedIn(false);
+    window.location.href = '/';
+  };
+
+  const teacherSession = getTeacherSession();
 
   return (
     <BrowserRouter>
@@ -88,6 +119,23 @@ function App() {
             <span>ExamApp</span>
           </Link>
           <div className="navbar-nav flex items-center gap-4">
+            {/* Hiển thị thông tin giáo viên nếu đã đăng nhập */}
+            {teacherLoggedIn && teacherSession && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm" style={{ color: 'var(--success)' }}>
+                  👋 Xin chào, {teacherSession.name}
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="btn btn-sm"
+                  style={{ background: 'var(--danger)', color: 'white' }}
+                  title="Đăng xuất"
+                >
+                  <LogOut size={16} />
+                </button>
+              </div>
+            )}
+
             {/* Nút Settings với text đỏ nếu chưa có API Key */}
             <Link
               to="/settings"
@@ -123,8 +171,17 @@ function App() {
 
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/teacher" element={<TeacherDashboard />} />
-          <Route path="/teacher/monitor/:examId" element={<TeacherMonitor />} />
+          <Route path="/teacher/login" element={<TeacherLogin />} />
+          <Route path="/teacher" element={
+            <ProtectedTeacherRoute>
+              <TeacherDashboard />
+            </ProtectedTeacherRoute>
+          } />
+          <Route path="/teacher/monitor/:examId" element={
+            <ProtectedTeacherRoute>
+              <TeacherMonitor />
+            </ProtectedTeacherRoute>
+          } />
           <Route path="/student" element={<StudentLogin />} />
           <Route path="/student/exam/:submissionId" element={<StudentExam />} />
           <Route path="/student/result/:submissionId" element={<StudentResult />} />
