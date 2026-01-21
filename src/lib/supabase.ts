@@ -155,3 +155,40 @@ export function generateRoomCode(): string {
   }
   return result;
 }
+
+// Upload ảnh câu hỏi lên Supabase Storage
+export async function uploadQuestionImage(
+  file: File,
+  examId: string,
+  questionNumber: number
+): Promise<{ success: boolean; url?: string; error?: string }> {
+  try {
+    // Tạo tên file unique
+    const fileExt = file.name.split('.').pop() || 'png';
+    const fileName = `${examId}/q${questionNumber}_${Date.now()}.${fileExt}`;
+
+    // Upload file
+    const { error: uploadError } = await supabase.storage
+      .from('question-images')
+      .upload(fileName, file, {
+        cacheControl: '3600',
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError);
+      return { success: false, error: uploadError.message };
+    }
+
+    // Lấy public URL
+    const { data: urlData } = supabase.storage
+      .from('question-images')
+      .getPublicUrl(fileName);
+
+    return { success: true, url: urlData.publicUrl };
+
+  } catch (err: any) {
+    console.error('Upload exception:', err);
+    return { success: false, error: err.message };
+  }
+}
