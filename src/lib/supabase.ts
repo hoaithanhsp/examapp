@@ -46,11 +46,26 @@ export interface Student {
   created_at: string;
 }
 
+// Interface cho học sinh trong danh sách lớp (từ file Excel)
+export interface ClassStudent {
+  id?: string;
+  exam_id: string;
+  student_code: string;    // Mã số học sinh (VD: HS01)
+  password: string;        // Mật khẩu
+  full_name: string;       // Họ và tên
+  birth_date: string;      // Ngày sinh (VD: 20/03/2010)
+  class_name: string;      // Lớp (VD: 10A)
+  created_at?: string;
+}
+
 export interface Submission {
   id: string;
   exam_id: string;
   student_id: string;
   student_name: string;
+  student_code?: string;    // Mã số HS (từ danh sách lớp)
+  birth_date?: string;      // Ngày sinh (từ danh sách lớp)
+  class_name?: string;      // Lớp (từ danh sách lớp)
   answers: Record<number, string | string[]>;
   score: number;
   total_questions: number;
@@ -192,3 +207,93 @@ export async function uploadQuestionImage(
     return { success: false, error: err.message };
   }
 }
+
+// ============ QUẢN LÝ DANH SÁCH LỚP TỪ EXCEL ============
+
+// Lưu danh sách học sinh từ file Excel
+export async function saveClassStudents(
+  examId: string,
+  students: Omit<ClassStudent, 'id' | 'exam_id' | 'created_at'>[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Xóa danh sách cũ trước (nếu có)
+    await supabase
+      .from('class_students')
+      .delete()
+      .eq('exam_id', examId);
+
+    // Thêm danh sách mới
+    const studentsWithExamId = students.map(s => ({
+      ...s,
+      exam_id: examId
+    }));
+
+    const { error } = await supabase
+      .from('class_students')
+      .insert(studentsWithExamId);
+
+    if (error) {
+      console.error('Error saving class students:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Save class students exception:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// Tìm học sinh theo Mã số + Mật khẩu trong danh sách lớp của phòng thi
+export async function findClassStudent(
+  examId: string,
+  studentCode: string,
+  password: string
+): Promise<ClassStudent | null> {
+  const { data, error } = await supabase
+    .from('class_students')
+    .select('*')
+    .eq('exam_id', examId)
+    .eq('student_code', studentCode.toUpperCase())
+    .eq('password', password)
+    .single();
+
+  if (error) {
+    console.error('Error finding class student:', error);
+    return null;
+  }
+
+  return data as ClassStudent;
+}
+
+// Kiểm tra phòng thi có danh sách lớp không
+export async function hasClassList(examId: string): Promise<boolean> {
+  const { count, error } = await supabase
+    .from('class_students')
+    .select('*', { count: 'exact', head: true })
+    .eq('exam_id', examId);
+
+  if (error) {
+    console.error('Error checking class list:', error);
+    return false;
+  }
+
+  return (count ?? 0) > 0;
+}
+
+// Lấy danh sách học sinh của một phòng thi
+export async function getClassStudents(examId: string): Promise<ClassStudent[]> {
+  const { data, error } = await supabase
+    .from('class_students')
+    .select('*')
+    .eq('exam_id', examId)
+    .order('student_code', { ascending: true });
+
+  if (error) {
+    console.error('Error fetching class students:', error);
+    return [];
+  }
+
+  return data as ClassStudent[];
+}
+
