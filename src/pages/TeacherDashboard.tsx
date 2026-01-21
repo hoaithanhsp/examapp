@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Upload, FileText, Check, AlertCircle, Eye, Loader2, Trash2, Image, Plus, X } from 'lucide-react';
+import { Upload, FileText, Check, AlertCircle, Eye, Loader2, Trash2, Image, Plus, X, Edit } from 'lucide-react';
 import { extractTextFromPDF, isPDFFile } from '../lib/pdfParser';
 import { extractFromWord, isWordFile } from '../lib/wordParser';
 import { analyzeExamWithVision, analyzeExamText, hasApiKey } from '../lib/geminiService';
@@ -22,6 +22,7 @@ export function TeacherDashboard() {
     // State cho form nhập link ảnh
     const [imageInputs, setImageInputs] = useState<{ questionNumber: string, imageUrl: string, description: string }[]>([]);
     const [savingImages, setSavingImages] = useState(false);
+    const [editingExam, setEditingExam] = useState<Exam | null>(null);
 
     // Load existing exams
     useState(() => {
@@ -305,321 +306,477 @@ export function TeacherDashboard() {
         }
     };
 
+    // Lưu ảnh cho exam đang được edit
+    const saveEditingExamImages = async () => {
+        if (!editingExam || imageInputs.length === 0) return;
+
+        const validInputs = imageInputs.filter(i => i.questionNumber && i.imageUrl);
+        if (validInputs.length === 0) {
+            setError('Vui lòng nhập số câu và link ảnh');
+            return;
+        }
+
+        setSavingImages(true);
+        setError('');
+
+        try {
+            const updatedQuestions = [...editingExam.questions];
+
+            for (const input of validInputs) {
+                const qNum = parseInt(input.questionNumber);
+                const questionIndex = updatedQuestions.findIndex(q => q.id === qNum);
+
+                if (questionIndex !== -1) {
+                    updatedQuestions[questionIndex] = {
+                        ...updatedQuestions[questionIndex],
+                        has_image: true,
+                        image_url: convertToDirectImageUrl(input.imageUrl),
+                        image_description: input.description || ''
+                    };
+                }
+            }
+
+            const { error: updateError } = await supabase
+                .from('exams')
+                .update({ questions: updatedQuestions })
+                .eq('id', editingExam.id);
+
+            if (updateError) {
+                throw new Error(updateError.message);
+            }
+
+            // Cập nhật state local
+            setExams(prev => prev.map(e =>
+                e.id === editingExam.id ? { ...e, questions: updatedQuestions } : e
+            ));
+            setEditingExam(null);
+            setImageInputs([]);
+            alert(`Đã cập nhật ảnh cho ${validInputs.length} câu hỏi!`);
+
+        } catch (err: any) {
+            setError('Lỗi lưu ảnh: ' + err.message);
+        } finally {
+            setSavingImages(false);
+        }
+    };
+
     return (
-        <div className="page">
-            <div className="container">
-                <div className="page-header">
-                    <h1>Dashboard Giáo viên</h1>
-                    <p>Upload đề thi PDF hoặc Word (.docx) và tạo phòng thi trực tuyến</p>
-                </div>
+        <>
+            {/* Modal chỉnh sửa đề thi - Thêm ảnh */}
+            {editingExam && (
+                <div className="modal-overlay" onClick={() => setEditingExam(null)}>
+                    <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '600px', maxHeight: '80vh', overflow: 'auto' }}>
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 style={{ margin: 0 }}>
+                                <Image size={20} style={{ marginRight: '0.5rem', verticalAlign: 'middle' }} />
+                                Thêm ảnh - {editingExam.title}
+                            </h3>
+                            <button
+                                onClick={() => setEditingExam(null)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.5rem' }}
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
 
-                {!hasApiKey() && (
-                    <div className="alert alert-warning mb-4">
-                        <AlertCircle size={20} />
-                        <span>
-                            Bạn cần <Link to="/settings" style={{ fontWeight: 'bold' }}>nhập API Key</Link> để sử dụng tính năng phân tích PDF
-                        </span>
+                        <p className="text-sm text-muted mb-3">
+                            Đề có {editingExam.questions.length} câu hỏi. Nhập số câu và link ảnh bên dưới.
+                        </p>
+
+                        <p className="text-sm text-muted mb-3" style={{ lineHeight: '1.5' }}>
+                            💡 <strong>Link hỗ trợ:</strong> Imgur, ImgBB, Google Drive (tự động chuyển đổi)
+                        </p>
+
+                        {/* Nút thêm dòng */}
+                        <button className="btn btn-outline btn-sm mb-3" onClick={addImageInput}>
+                            <Plus size={16} /> Thêm ảnh
+                        </button>
+
+                        {/* Danh sách input */}
+                        {imageInputs.map((input, index) => (
+                            <div key={index} style={{
+                                display: 'flex', gap: '0.5rem', marginBottom: '0.5rem',
+                                padding: '0.5rem', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)'
+                            }}>
+                                <input
+                                    type="number"
+                                    placeholder="Câu #"
+                                    value={input.questionNumber}
+                                    onChange={(e) => updateImageInput(index, 'questionNumber', e.target.value)}
+                                    style={{ width: '60px', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+                                    min="1" max={editingExam.questions.length}
+                                />
+                                <input
+                                    type="url"
+                                    placeholder="Link ảnh (https://...)"
+                                    value={input.imageUrl}
+                                    onChange={(e) => updateImageInput(index, 'imageUrl', e.target.value)}
+                                    style={{ flex: 1, padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Mô tả"
+                                    value={input.description}
+                                    onChange={(e) => updateImageInput(index, 'description', e.target.value)}
+                                    style={{ width: '100px', padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+                                />
+                                <button onClick={() => removeImageInput(index)} style={{ padding: '0.5rem', background: 'rgba(239,68,68,0.2)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', color: 'var(--danger)' }}>
+                                    <X size={16} />
+                                </button>
+                            </div>
+                        ))}
+
+                        {imageInputs.length === 0 && (
+                            <p className="text-muted text-center" style={{ padding: '2rem', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+                                Nhấn "Thêm ảnh" để bắt đầu
+                            </p>
+                        )}
+
+                        {/* Nút lưu */}
+                        {imageInputs.length > 0 && (
+                            <button
+                                className="btn btn-secondary mt-4"
+                                onClick={saveEditingExamImages}
+                                disabled={savingImages}
+                                style={{ width: '100%' }}
+                            >
+                                {savingImages ? (
+                                    <><Loader2 size={16} className="spinner" /> Đang lưu...</>
+                                ) : (
+                                    <><Check size={16} /> Lưu ảnh ({imageInputs.filter(i => i.questionNumber && i.imageUrl).length} câu)</>
+                                )}
+                            </button>
+                        )}
                     </div>
-                )}
+                </div>
+            )}
 
-                <div className="grid grid-2">
-                    {/* Upload Section */}
-                    <div className="card">
-                        <h3 className="mb-4">Upload Đề Thi</h3>
+            <div className="page">
+                <div className="container">
+                    <div className="page-header">
+                        <h1>Dashboard Giáo viên</h1>
+                        <p>Upload đề thi PDF hoặc Word (.docx) và tạo phòng thi trực tuyến</p>
+                    </div>
 
-                        {createdExam ? (
-                            <div className="text-center">
-                                <div className="alert alert-success mb-4">
-                                    <Check size={20} />
-                                    <span>Tạo phòng thi thành công! {createdExam.questions.length} câu hỏi</span>
-                                </div>
+                    {!hasApiKey() && (
+                        <div className="alert alert-warning mb-4">
+                            <AlertCircle size={20} />
+                            <span>
+                                Bạn cần <Link to="/settings" style={{ fontWeight: 'bold' }}>nhập API Key</Link> để sử dụng tính năng phân tích PDF
+                            </span>
+                        </div>
+                    )}
 
-                                <p className="text-muted mb-2">Mã phòng thi:</p>
-                                <div
-                                    className="room-code"
-                                    onClick={() => copyRoomCode(createdExam.room_code)}
-                                    title="Click để copy"
-                                >
-                                    {createdExam.room_code}
-                                </div>
-                                <p className="text-sm text-muted mt-2">Click để copy</p>
+                    <div className="grid grid-2">
+                        {/* Upload Section */}
+                        <div className="card">
+                            <h3 className="mb-4">Upload Đề Thi</h3>
 
-                                <div className="flex gap-4 justify-center mt-6">
-                                    <button
-                                        className="btn btn-primary"
-                                        onClick={() => navigate(`/teacher/monitor/${createdExam.id}`)}
+                            {createdExam ? (
+                                <div className="text-center">
+                                    <div className="alert alert-success mb-4">
+                                        <Check size={20} />
+                                        <span>Tạo phòng thi thành công! {createdExam.questions.length} câu hỏi</span>
+                                    </div>
+
+                                    <p className="text-muted mb-2">Mã phòng thi:</p>
+                                    <div
+                                        className="room-code"
+                                        onClick={() => copyRoomCode(createdExam.room_code)}
+                                        title="Click để copy"
                                     >
-                                        <Eye size={18} />
-                                        Theo dõi
-                                    </button>
-                                    <button
-                                        className="btn btn-outline"
-                                        onClick={() => {
-                                            setCreatedExam(null);
-                                            setImageInputs([]);
-                                        }}
-                                    >
-                                        Tạo đề mới
-                                    </button>
-                                </div>
+                                        {createdExam.room_code}
+                                    </div>
+                                    <p className="text-sm text-muted mt-2">Click để copy</p>
 
-                                {/* Form thêm ảnh cho câu hỏi */}
-                                <div style={{
-                                    marginTop: '2rem',
-                                    borderTop: '1px solid var(--border)',
-                                    paddingTop: '1.5rem'
-                                }}>
-                                    <div className="flex justify-between items-center mb-3">
-                                        <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                            <Image size={18} />
-                                            Thêm ảnh cho câu hỏi
-                                        </h4>
+                                    <div className="flex gap-4 justify-center mt-6">
                                         <button
-                                            className="btn btn-sm btn-outline"
-                                            onClick={addImageInput}
+                                            className="btn btn-primary"
+                                            onClick={() => navigate(`/teacher/monitor/${createdExam.id}`)}
                                         >
-                                            <Plus size={16} />
-                                            Thêm
+                                            <Eye size={18} />
+                                            Theo dõi
+                                        </button>
+                                        <button
+                                            className="btn btn-outline"
+                                            onClick={() => {
+                                                setCreatedExam(null);
+                                                setImageInputs([]);
+                                            }}
+                                        >
+                                            Tạo đề mới
                                         </button>
                                     </div>
 
-                                    <p className="text-sm text-muted mb-3" style={{ lineHeight: '1.5' }}>
-                                        💡 <strong>Link ảnh hỗ trợ:</strong> Imgur, ImgBB, Postimages, Google Drive (public),
-                                        Supabase Storage, GitHub, hoặc bất kỳ URL ảnh trực tiếp (.jpg, .png, .webp)
-                                    </p>
-
-                                    {imageInputs.length > 0 && (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                            {imageInputs.map((input, index) => (
-                                                <div key={index} style={{
-                                                    display: 'flex',
-                                                    gap: '0.5rem',
-                                                    padding: '0.75rem',
-                                                    background: 'var(--bg-tertiary)',
-                                                    borderRadius: 'var(--radius-md)'
-                                                }}>
-                                                    <input
-                                                        type="number"
-                                                        placeholder="Câu #"
-                                                        value={input.questionNumber}
-                                                        onChange={(e) => updateImageInput(index, 'questionNumber', e.target.value)}
-                                                        style={{
-                                                            width: '70px',
-                                                            padding: '0.5rem',
-                                                            borderRadius: 'var(--radius-sm)',
-                                                            border: '1px solid var(--border)',
-                                                            background: 'var(--bg-secondary)'
-                                                        }}
-                                                        min="1"
-                                                        max={createdExam.questions.length}
-                                                    />
-                                                    <input
-                                                        type="url"
-                                                        placeholder="Link ảnh (https://...)"
-                                                        value={input.imageUrl}
-                                                        onChange={(e) => updateImageInput(index, 'imageUrl', e.target.value)}
-                                                        style={{
-                                                            flex: 1,
-                                                            padding: '0.5rem',
-                                                            borderRadius: 'var(--radius-sm)',
-                                                            border: '1px solid var(--border)',
-                                                            background: 'var(--bg-secondary)'
-                                                        }}
-                                                    />
-                                                    <input
-                                                        type="text"
-                                                        placeholder="Mô tả (tùy chọn)"
-                                                        value={input.description}
-                                                        onChange={(e) => updateImageInput(index, 'description', e.target.value)}
-                                                        style={{
-                                                            width: '150px',
-                                                            padding: '0.5rem',
-                                                            borderRadius: 'var(--radius-sm)',
-                                                            border: '1px solid var(--border)',
-                                                            background: 'var(--bg-secondary)'
-                                                        }}
-                                                    />
-                                                    <button
-                                                        onClick={() => removeImageInput(index)}
-                                                        style={{
-                                                            padding: '0.5rem',
-                                                            background: 'rgba(239, 68, 68, 0.2)',
-                                                            border: 'none',
-                                                            borderRadius: 'var(--radius-sm)',
-                                                            cursor: 'pointer',
-                                                            color: 'var(--danger)'
-                                                        }}
-                                                        title="Xóa"
-                                                    >
-                                                        <X size={16} />
-                                                    </button>
-                                                </div>
-                                            ))}
-
-                                            <button
-                                                className="btn btn-secondary"
-                                                onClick={saveQuestionImages}
-                                                disabled={savingImages}
-                                                style={{ marginTop: '0.5rem' }}
-                                            >
-                                                {savingImages ? (
-                                                    <>
-                                                        <Loader2 size={16} className="spinner" />
-                                                        Đang lưu...
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Check size={16} />
-                                                        Lưu ảnh ({imageInputs.filter(i => i.questionNumber && i.imageUrl).length} câu)
-                                                    </>
-                                                )}
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {imageInputs.length === 0 && (
-                                        <p className="text-muted text-center" style={{
-                                            padding: '1rem',
-                                            background: 'var(--bg-tertiary)',
-                                            borderRadius: 'var(--radius-md)'
-                                        }}>
-                                            Nhấn "Thêm" để thêm ảnh cho các câu hỏi có hình vẽ
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                        ) : (
-                            <>
-                                <div
-                                    className={`upload-area ${isDragging ? 'dragging' : ''}`}
-                                    onDragOver={handleDragOver}
-                                    onDragLeave={handleDragLeave}
-                                    onDrop={handleDrop}
-                                    onClick={() => document.getElementById('file-input')?.click()}
-                                >
-                                    <input
-                                        type="file"
-                                        id="file-input"
-                                        accept=".pdf,.docx,.doc"
-                                        onChange={handleFileSelect}
-                                        style={{ display: 'none' }}
-                                    />
-
-                                    {file ? (
-                                        <>
-                                            <FileText size={64} className="upload-area-icon" style={{ color: 'var(--primary)' }} />
-                                            <p className="font-bold">{file.name}</p>
-                                            <p className="text-sm text-muted">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Upload size={64} className="upload-area-icon" />
-                                            <p className="font-bold">Kéo thả file PDF hoặc Word vào đây</p>
-                                            <p className="text-muted">hoặc click để chọn file</p>
-                                        </>
-                                    )}
-                                </div>
-
-                                {processing && (
-                                    <div className="mt-4">
-                                        <div className="flex justify-between mb-2">
-                                            <span className="text-sm text-muted">{progressText}</span>
-                                            <span className="text-sm text-muted">{progress}%</span>
-                                        </div>
-                                        <div className="progress-bar">
-                                            <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
-                                        </div>
-                                    </div>
-                                )}
-
-                                {error && (
-                                    <div className="alert alert-danger mt-4">
-                                        <AlertCircle size={20} />
-                                        <span>{error}</span>
-                                    </div>
-                                )}
-
-                                <button
-                                    className="btn btn-primary btn-lg mt-4"
-                                    style={{ width: '100%' }}
-                                    onClick={processExam}
-                                    disabled={!file || processing}
-                                >
-                                    {processing ? (
-                                        <>
-                                            <Loader2 size={20} className="spinner" style={{ animation: 'spin 1s linear infinite' }} />
-                                            Đang xử lý...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Upload size={20} />
-                                            Tạo đề thi
-                                        </>
-                                    )}
-                                </button>
-                            </>
-                        )}
-                    </div>
-
-                    {/* Recent Exams */}
-                    <div className="card">
-                        <h3 className="mb-4">Đề thi gần đây</h3>
-
-                        {loadingExams ? (
-                            <div className="text-center p-4">
-                                <div className="spinner" style={{ margin: '0 auto' }} />
-                            </div>
-                        ) : exams.length === 0 ? (
-                            <p className="text-muted text-center p-4">
-                                Chưa có đề thi nào. Upload PDF để bắt đầu!
-                            </p>
-                        ) : (
-                            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                                {exams.map((exam) => (
-                                    <div
-                                        key={exam.id}
-                                        className="flex justify-between items-center p-4"
-                                        style={{
-                                            background: 'var(--bg-tertiary)',
-                                            borderRadius: 'var(--radius-md)',
-                                            marginBottom: '0.5rem'
-                                        }}
-                                    >
-                                        <div>
-                                            <p className="font-bold">{exam.title}</p>
-                                            <p className="text-sm text-muted">
-                                                {exam.questions.length} câu • Mã: {exam.room_code}
-                                            </p>
-                                        </div>
-                                        <div className="flex gap-2">
+                                    {/* Form thêm ảnh cho câu hỏi */}
+                                    <div style={{
+                                        marginTop: '2rem',
+                                        borderTop: '1px solid var(--border)',
+                                        paddingTop: '1.5rem'
+                                    }}>
+                                        <div className="flex justify-between items-center mb-3">
+                                            <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                                <Image size={18} />
+                                                Thêm ảnh cho câu hỏi
+                                            </h4>
                                             <button
                                                 className="btn btn-sm btn-outline"
-                                                onClick={() => copyRoomCode(exam.room_code)}
+                                                onClick={addImageInput}
                                             >
-                                                Copy
-                                            </button>
-                                            <button
-                                                className="btn btn-sm btn-primary"
-                                                onClick={() => navigate(`/teacher/monitor/${exam.id}`)}
-                                            >
-                                                <Eye size={16} />
-                                            </button>
-                                            <button
-                                                className="btn btn-sm"
-                                                style={{ background: 'var(--danger)', color: 'white' }}
-                                                onClick={() => deleteExam(exam.id, exam.title)}
-                                                title="Xóa đề thi"
-                                            >
-                                                <Trash2 size={16} />
+                                                <Plus size={16} />
+                                                Thêm
                                             </button>
                                         </div>
+
+                                        <p className="text-sm text-muted mb-3" style={{ lineHeight: '1.5' }}>
+                                            💡 <strong>Link ảnh hỗ trợ:</strong> Imgur, ImgBB, Postimages, Google Drive (public),
+                                            Supabase Storage, GitHub, hoặc bất kỳ URL ảnh trực tiếp (.jpg, .png, .webp)
+                                        </p>
+
+                                        {imageInputs.length > 0 && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                                {imageInputs.map((input, index) => (
+                                                    <div key={index} style={{
+                                                        display: 'flex',
+                                                        gap: '0.5rem',
+                                                        padding: '0.75rem',
+                                                        background: 'var(--bg-tertiary)',
+                                                        borderRadius: 'var(--radius-md)'
+                                                    }}>
+                                                        <input
+                                                            type="number"
+                                                            placeholder="Câu #"
+                                                            value={input.questionNumber}
+                                                            onChange={(e) => updateImageInput(index, 'questionNumber', e.target.value)}
+                                                            style={{
+                                                                width: '70px',
+                                                                padding: '0.5rem',
+                                                                borderRadius: 'var(--radius-sm)',
+                                                                border: '1px solid var(--border)',
+                                                                background: 'var(--bg-secondary)'
+                                                            }}
+                                                            min="1"
+                                                            max={createdExam.questions.length}
+                                                        />
+                                                        <input
+                                                            type="url"
+                                                            placeholder="Link ảnh (https://...)"
+                                                            value={input.imageUrl}
+                                                            onChange={(e) => updateImageInput(index, 'imageUrl', e.target.value)}
+                                                            style={{
+                                                                flex: 1,
+                                                                padding: '0.5rem',
+                                                                borderRadius: 'var(--radius-sm)',
+                                                                border: '1px solid var(--border)',
+                                                                background: 'var(--bg-secondary)'
+                                                            }}
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Mô tả (tùy chọn)"
+                                                            value={input.description}
+                                                            onChange={(e) => updateImageInput(index, 'description', e.target.value)}
+                                                            style={{
+                                                                width: '150px',
+                                                                padding: '0.5rem',
+                                                                borderRadius: 'var(--radius-sm)',
+                                                                border: '1px solid var(--border)',
+                                                                background: 'var(--bg-secondary)'
+                                                            }}
+                                                        />
+                                                        <button
+                                                            onClick={() => removeImageInput(index)}
+                                                            style={{
+                                                                padding: '0.5rem',
+                                                                background: 'rgba(239, 68, 68, 0.2)',
+                                                                border: 'none',
+                                                                borderRadius: 'var(--radius-sm)',
+                                                                cursor: 'pointer',
+                                                                color: 'var(--danger)'
+                                                            }}
+                                                            title="Xóa"
+                                                        >
+                                                            <X size={16} />
+                                                        </button>
+                                                    </div>
+                                                ))}
+
+                                                <button
+                                                    className="btn btn-secondary"
+                                                    onClick={saveQuestionImages}
+                                                    disabled={savingImages}
+                                                    style={{ marginTop: '0.5rem' }}
+                                                >
+                                                    {savingImages ? (
+                                                        <>
+                                                            <Loader2 size={16} className="spinner" />
+                                                            Đang lưu...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Check size={16} />
+                                                            Lưu ảnh ({imageInputs.filter(i => i.questionNumber && i.imageUrl).length} câu)
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {imageInputs.length === 0 && (
+                                            <p className="text-muted text-center" style={{
+                                                padding: '1rem',
+                                                background: 'var(--bg-tertiary)',
+                                                borderRadius: 'var(--radius-md)'
+                                            }}>
+                                                Nhấn "Thêm" để thêm ảnh cho các câu hỏi có hình vẽ
+                                            </p>
+                                        )}
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                </div>
+                            ) : (
+                                <>
+                                    <div
+                                        className={`upload-area ${isDragging ? 'dragging' : ''}`}
+                                        onDragOver={handleDragOver}
+                                        onDragLeave={handleDragLeave}
+                                        onDrop={handleDrop}
+                                        onClick={() => document.getElementById('file-input')?.click()}
+                                    >
+                                        <input
+                                            type="file"
+                                            id="file-input"
+                                            accept=".pdf,.docx,.doc"
+                                            onChange={handleFileSelect}
+                                            style={{ display: 'none' }}
+                                        />
+
+                                        {file ? (
+                                            <>
+                                                <FileText size={64} className="upload-area-icon" style={{ color: 'var(--primary)' }} />
+                                                <p className="font-bold">{file.name}</p>
+                                                <p className="text-sm text-muted">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Upload size={64} className="upload-area-icon" />
+                                                <p className="font-bold">Kéo thả file PDF hoặc Word vào đây</p>
+                                                <p className="text-muted">hoặc click để chọn file</p>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    {processing && (
+                                        <div className="mt-4">
+                                            <div className="flex justify-between mb-2">
+                                                <span className="text-sm text-muted">{progressText}</span>
+                                                <span className="text-sm text-muted">{progress}%</span>
+                                            </div>
+                                            <div className="progress-bar">
+                                                <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {error && (
+                                        <div className="alert alert-danger mt-4">
+                                            <AlertCircle size={20} />
+                                            <span>{error}</span>
+                                        </div>
+                                    )}
+
+                                    <button
+                                        className="btn btn-primary btn-lg mt-4"
+                                        style={{ width: '100%' }}
+                                        onClick={processExam}
+                                        disabled={!file || processing}
+                                    >
+                                        {processing ? (
+                                            <>
+                                                <Loader2 size={20} className="spinner" style={{ animation: 'spin 1s linear infinite' }} />
+                                                Đang xử lý...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Upload size={20} />
+                                                Tạo đề thi
+                                            </>
+                                        )}
+                                    </button>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Recent Exams */}
+                        <div className="card">
+                            <h3 className="mb-4">Đề thi gần đây</h3>
+
+                            {loadingExams ? (
+                                <div className="text-center p-4">
+                                    <div className="spinner" style={{ margin: '0 auto' }} />
+                                </div>
+                            ) : exams.length === 0 ? (
+                                <p className="text-muted text-center p-4">
+                                    Chưa có đề thi nào. Upload PDF để bắt đầu!
+                                </p>
+                            ) : (
+                                <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                    {exams.map((exam) => (
+                                        <div
+                                            key={exam.id}
+                                            className="flex justify-between items-center p-4"
+                                            style={{
+                                                background: 'var(--bg-tertiary)',
+                                                borderRadius: 'var(--radius-md)',
+                                                marginBottom: '0.5rem'
+                                            }}
+                                        >
+                                            <div>
+                                                <p className="font-bold">{exam.title}</p>
+                                                <p className="text-sm text-muted">
+                                                    {exam.questions.length} câu • Mã: {exam.room_code}
+                                                </p>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    className="btn btn-sm btn-outline"
+                                                    onClick={() => copyRoomCode(exam.room_code)}
+                                                >
+                                                    Copy
+                                                </button>
+                                                <button
+                                                    className="btn btn-sm btn-primary"
+                                                    onClick={() => navigate(`/teacher/monitor/${exam.id}`)}
+                                                >
+                                                    <Eye size={16} />
+                                                </button>
+                                                <button
+                                                    className="btn btn-sm"
+                                                    style={{ background: 'var(--secondary)', color: 'white' }}
+                                                    onClick={() => {
+                                                        setEditingExam(exam);
+                                                        setImageInputs([]);
+                                                    }}
+                                                    title="Sửa / Thêm ảnh"
+                                                >
+                                                    <Edit size={16} />
+                                                </button>
+                                                <button
+                                                    className="btn btn-sm"
+                                                    style={{ background: 'var(--danger)', color: 'white' }}
+                                                    onClick={() => deleteExam(exam.id, exam.title)}
+                                                    title="Xóa đề thi"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </>
     );
 }
