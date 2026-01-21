@@ -228,6 +228,29 @@ export function TeacherDashboard() {
         ));
     };
 
+    // Chuyển đổi link ảnh sang dạng có thể embed
+    const convertToDirectImageUrl = (url: string): string => {
+        // Google Drive: https://drive.google.com/file/d/FILE_ID/view... → https://drive.google.com/uc?export=view&id=FILE_ID
+        const gdriveMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+        if (gdriveMatch) {
+            return `https://drive.google.com/uc?export=view&id=${gdriveMatch[1]}`;
+        }
+
+        // Google Drive dạng open: https://drive.google.com/open?id=FILE_ID
+        const gdriveOpenMatch = url.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/);
+        if (gdriveOpenMatch) {
+            return `https://drive.google.com/uc?export=view&id=${gdriveOpenMatch[1]}`;
+        }
+
+        // Dropbox: ?dl=0 → ?raw=1
+        if (url.includes('dropbox.com') && url.includes('?dl=0')) {
+            return url.replace('?dl=0', '?raw=1');
+        }
+
+        // Trả về URL gốc nếu không cần chuyển đổi
+        return url;
+    };
+
     // Lưu ảnh vào câu hỏi
     const saveQuestionImages = async () => {
         if (!createdExam || imageInputs.length === 0) return;
@@ -254,7 +277,7 @@ export function TeacherDashboard() {
                     updatedQuestions[questionIndex] = {
                         ...updatedQuestions[questionIndex],
                         has_image: true,
-                        image_url: input.imageUrl,
+                        image_url: convertToDirectImageUrl(input.imageUrl),
                         image_description: input.description || ''
                     };
                 }
