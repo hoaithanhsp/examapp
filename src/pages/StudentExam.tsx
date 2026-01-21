@@ -107,25 +107,82 @@ export function StudentExam() {
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
+    /**
+     * Tính điểm theo cấu trúc đề thi Toán THPT:
+     * - Phần 1 (12 câu trắc nghiệm 4 lựa chọn): 0.25 điểm/câu = 3 điểm
+     * - Phần 2 (4 câu Đúng/Sai, mỗi câu 4 ý):
+     *   + 1 ý đúng: 0.1 điểm
+     *   + 2 ý đúng: 0.25 điểm
+     *   + 3 ý đúng: 0.5 điểm
+     *   + 4 ý đúng: 1 điểm
+     *   = 4 điểm
+     * - Phần 3 (6 câu trả lời ngắn): 0.5 điểm/câu = 3 điểm
+     * Tổng: 10 điểm
+     */
     const calculateScore = (): number => {
         if (!exam) return 0;
 
-        let correct = 0;
+        let totalScore = 0;
+
+        // Đếm số câu theo loại để xác định thứ tự phần
+        let mcCount = 0;  // Multiple choice - Phần 1
+        let tfCount = 0;  // True/False - Phần 2  
+        let saCount = 0;  // Short answer - Phần 3
+
         exam.questions.forEach((q) => {
             const userAnswer = answers[q.id];
-            if (userAnswer && q.correct_answer) {
-                if (Array.isArray(q.correct_answer)) {
-                    if (JSON.stringify(userAnswer) === JSON.stringify(q.correct_answer)) {
-                        correct++;
+
+            if (q.type === 'multiple_choice') {
+                mcCount++;
+                // Phần 1: 12 câu trắc nghiệm đầu tiên = 0.25 điểm/câu
+                if (mcCount <= 12) {
+                    if (userAnswer && q.correct_answer) {
+                        if (String(userAnswer).toUpperCase() === String(q.correct_answer).toUpperCase()) {
+                            totalScore += 0.25;
+                        }
                     }
-                } else {
-                    if (String(userAnswer).toUpperCase() === String(q.correct_answer).toUpperCase()) {
-                        correct++;
+                }
+            } else if (q.type === 'true_false') {
+                tfCount++;
+                // Phần 2: 4 câu Đúng/Sai (mỗi câu có 4 ý)
+                if (tfCount <= 4 && q.sub_questions && Array.isArray(q.correct_answer)) {
+                    const userAnswers = (userAnswer as string[]) || [];
+                    const correctAnswers = q.correct_answer as string[];
+
+                    // Đếm số ý đúng
+                    let correctCount = 0;
+                    for (let i = 0; i < correctAnswers.length; i++) {
+                        if (userAnswers[i] && userAnswers[i] === correctAnswers[i]) {
+                            correctCount++;
+                        }
+                    }
+
+                    // Tính điểm theo số ý đúng
+                    switch (correctCount) {
+                        case 1: totalScore += 0.1; break;
+                        case 2: totalScore += 0.25; break;
+                        case 3: totalScore += 0.5; break;
+                        case 4: totalScore += 1; break;
+                    }
+                }
+            } else if (q.type === 'short_answer') {
+                saCount++;
+                // Phần 3: 6 câu trả lời ngắn = 0.5 điểm/câu
+                if (saCount <= 6) {
+                    if (userAnswer && q.correct_answer) {
+                        // So sánh không phân biệt hoa thường và bỏ khoảng trắng thừa
+                        const userStr = String(userAnswer).trim().toLowerCase();
+                        const correctStr = String(q.correct_answer).trim().toLowerCase();
+                        if (userStr === correctStr) {
+                            totalScore += 0.5;
+                        }
                     }
                 }
             }
         });
-        return correct;
+
+        // Làm tròn đến 2 chữ số thập phân
+        return Math.round(totalScore * 100) / 100;
     };
 
     const handleSubmit = async () => {
