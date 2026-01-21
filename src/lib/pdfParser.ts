@@ -1,7 +1,9 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Cấu hình worker cho PDF.js
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Cấu hình worker cho PDF.js - sử dụng legacy build để tránh vấn đề worker
+// @ts-ignore
+import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
 export interface PDFParseResult {
     success: boolean;
