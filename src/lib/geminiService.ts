@@ -219,6 +219,14 @@ export async function analyzeExamWithVision(pageImages: string[]): Promise<Parse
             console.error(`Model ${modelName} thất bại:`, error);
             lastError = error.message || 'Unknown error';
 
+            // Lỗi 429 - Hết quota
+            if (error.message?.includes('429') || error.message?.includes('quota')) {
+                return {
+                    success: false,
+                    error: '🚨 Hết quota API miễn phí! Vui lòng chờ 1 phút hoặc tạo API key mới tại aistudio.google.com/app/apikey'
+                };
+            }
+
             // Chỉ dừng ngay với lỗi 401/403 (API key sai thật sự)
             if (error.message?.includes('401') ||
                 error.message?.includes('403') ||
@@ -320,6 +328,14 @@ Trả về JSON (KHÔNG có markdown):
         } catch (error: any) {
             console.error(`Model ${modelName} thất bại:`, error);
             lastError = error.message || 'Unknown error';
+
+            // Lỗi 429 - Hết quota
+            if (error.message?.includes('429') || error.message?.includes('quota')) {
+                return {
+                    success: false,
+                    error: '🚨 Hết quota API miễn phí! Vui lòng chờ 1 phút hoặc tạo API key mới tại aistudio.google.com/app/apikey'
+                };
+            }
 
             // Chỉ dừng ngay với lỗi 401/403 (API key sai thật sự)
             if (error.message?.includes('401') ||
