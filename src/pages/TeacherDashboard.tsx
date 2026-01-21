@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Upload, FileText, Check, AlertCircle, Eye, Loader2, Trash2 } from 'lucide-react';
+import { Upload, FileText, Check, AlertCircle, Eye, Loader2, Trash2, Image, Plus, X } from 'lucide-react';
 import { extractTextFromPDF, isPDFFile } from '../lib/pdfParser';
 import { extractFromWord, isWordFile } from '../lib/wordParser';
 import { analyzeExamWithVision, analyzeExamText, hasApiKey } from '../lib/geminiService';
@@ -18,6 +18,10 @@ export function TeacherDashboard() {
     const [createdExam, setCreatedExam] = useState<Exam | null>(null);
     const [exams, setExams] = useState<Exam[]>([]);
     const [loadingExams, setLoadingExams] = useState(true);
+
+    // State cho form nhập link ảnh
+    const [imageInputs, setImageInputs] = useState<{ questionNumber: string, imageUrl: string, description: string }[]>([]);
+    const [savingImages, setSavingImages] = useState(false);
 
     // Load existing exams
     useState(() => {
@@ -207,6 +211,77 @@ export function TeacherDashboard() {
         }
     };
 
+    // Thêm một dòng nhập ảnh mới
+    const addImageInput = () => {
+        setImageInputs(prev => [...prev, { questionNumber: '', imageUrl: '', description: '' }]);
+    };
+
+    // Xóa một dòng nhập ảnh
+    const removeImageInput = (index: number) => {
+        setImageInputs(prev => prev.filter((_, i) => i !== index));
+    };
+
+    // Cập nhật giá trị của một dòng
+    const updateImageInput = (index: number, field: 'questionNumber' | 'imageUrl' | 'description', value: string) => {
+        setImageInputs(prev => prev.map((item, i) =>
+            i === index ? { ...item, [field]: value } : item
+        ));
+    };
+
+    // Lưu ảnh vào câu hỏi
+    const saveQuestionImages = async () => {
+        if (!createdExam || imageInputs.length === 0) return;
+
+        // Validate inputs
+        const validInputs = imageInputs.filter(i => i.questionNumber && i.imageUrl);
+        if (validInputs.length === 0) {
+            setError('Vui lòng nhập số câu và link ảnh');
+            return;
+        }
+
+        setSavingImages(true);
+        setError('');
+
+        try {
+            // Clone questions và cập nhật ảnh
+            const updatedQuestions = [...createdExam.questions];
+
+            for (const input of validInputs) {
+                const qNum = parseInt(input.questionNumber);
+                const questionIndex = updatedQuestions.findIndex(q => q.id === qNum);
+
+                if (questionIndex !== -1) {
+                    updatedQuestions[questionIndex] = {
+                        ...updatedQuestions[questionIndex],
+                        has_image: true,
+                        image_url: input.imageUrl,
+                        image_description: input.description || ''
+                    };
+                }
+            }
+
+            // Update trong database
+            const { error: updateError } = await supabase
+                .from('exams')
+                .update({ questions: updatedQuestions })
+                .eq('id', createdExam.id);
+
+            if (updateError) {
+                throw new Error(updateError.message);
+            }
+
+            // Cập nhật state local
+            setCreatedExam({ ...createdExam, questions: updatedQuestions });
+            setImageInputs([]);
+            alert(`Đã cập nhật ảnh cho ${validInputs.length} câu hỏi!`);
+
+        } catch (err: any) {
+            setError('Lỗi lưu ảnh: ' + err.message);
+        } finally {
+            setSavingImages(false);
+        }
+    };
+
     return (
         <div className="page">
             <div className="container">
@@ -256,10 +331,138 @@ export function TeacherDashboard() {
                                     </button>
                                     <button
                                         className="btn btn-outline"
-                                        onClick={() => setCreatedExam(null)}
+                                        onClick={() => {
+                                            setCreatedExam(null);
+                                            setImageInputs([]);
+                                        }}
                                     >
                                         Tạo đề mới
                                     </button>
+                                </div>
+
+                                {/* Form thêm ảnh cho câu hỏi */}
+                                <div style={{
+                                    marginTop: '2rem',
+                                    borderTop: '1px solid var(--border)',
+                                    paddingTop: '1.5rem'
+                                }}>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <Image size={18} />
+                                            Thêm ảnh cho câu hỏi
+                                        </h4>
+                                        <button
+                                            className="btn btn-sm btn-outline"
+                                            onClick={addImageInput}
+                                        >
+                                            <Plus size={16} />
+                                            Thêm
+                                        </button>
+                                    </div>
+
+                                    <p className="text-sm text-muted mb-3" style={{ lineHeight: '1.5' }}>
+                                        💡 <strong>Link ảnh hỗ trợ:</strong> Imgur, ImgBB, Postimages, Google Drive (public),
+                                        Supabase Storage, GitHub, hoặc bất kỳ URL ảnh trực tiếp (.jpg, .png, .webp)
+                                    </p>
+
+                                    {imageInputs.length > 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                            {imageInputs.map((input, index) => (
+                                                <div key={index} style={{
+                                                    display: 'flex',
+                                                    gap: '0.5rem',
+                                                    padding: '0.75rem',
+                                                    background: 'var(--bg-tertiary)',
+                                                    borderRadius: 'var(--radius-md)'
+                                                }}>
+                                                    <input
+                                                        type="number"
+                                                        placeholder="Câu #"
+                                                        value={input.questionNumber}
+                                                        onChange={(e) => updateImageInput(index, 'questionNumber', e.target.value)}
+                                                        style={{
+                                                            width: '70px',
+                                                            padding: '0.5rem',
+                                                            borderRadius: 'var(--radius-sm)',
+                                                            border: '1px solid var(--border)',
+                                                            background: 'var(--bg-secondary)'
+                                                        }}
+                                                        min="1"
+                                                        max={createdExam.questions.length}
+                                                    />
+                                                    <input
+                                                        type="url"
+                                                        placeholder="Link ảnh (https://...)"
+                                                        value={input.imageUrl}
+                                                        onChange={(e) => updateImageInput(index, 'imageUrl', e.target.value)}
+                                                        style={{
+                                                            flex: 1,
+                                                            padding: '0.5rem',
+                                                            borderRadius: 'var(--radius-sm)',
+                                                            border: '1px solid var(--border)',
+                                                            background: 'var(--bg-secondary)'
+                                                        }}
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Mô tả (tùy chọn)"
+                                                        value={input.description}
+                                                        onChange={(e) => updateImageInput(index, 'description', e.target.value)}
+                                                        style={{
+                                                            width: '150px',
+                                                            padding: '0.5rem',
+                                                            borderRadius: 'var(--radius-sm)',
+                                                            border: '1px solid var(--border)',
+                                                            background: 'var(--bg-secondary)'
+                                                        }}
+                                                    />
+                                                    <button
+                                                        onClick={() => removeImageInput(index)}
+                                                        style={{
+                                                            padding: '0.5rem',
+                                                            background: 'rgba(239, 68, 68, 0.2)',
+                                                            border: 'none',
+                                                            borderRadius: 'var(--radius-sm)',
+                                                            cursor: 'pointer',
+                                                            color: 'var(--danger)'
+                                                        }}
+                                                        title="Xóa"
+                                                    >
+                                                        <X size={16} />
+                                                    </button>
+                                                </div>
+                                            ))}
+
+                                            <button
+                                                className="btn btn-secondary"
+                                                onClick={saveQuestionImages}
+                                                disabled={savingImages}
+                                                style={{ marginTop: '0.5rem' }}
+                                            >
+                                                {savingImages ? (
+                                                    <>
+                                                        <Loader2 size={16} className="spinner" />
+                                                        Đang lưu...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Check size={16} />
+                                                        Lưu ảnh ({imageInputs.filter(i => i.questionNumber && i.imageUrl).length} câu)
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {imageInputs.length === 0 && (
+                                        <p className="text-muted text-center" style={{
+                                            padding: '1rem',
+                                            background: 'var(--bg-tertiary)',
+                                            borderRadius: 'var(--radius-md)'
+                                        }}>
+                                            Nhấn "Thêm" để thêm ảnh cho các câu hỏi có hình vẽ
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         ) : (
